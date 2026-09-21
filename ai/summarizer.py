@@ -1,16 +1,18 @@
-# ai/summarizer.py  ── version Ollama (100% local, gratuit)
-import ollama
+# ai/summarizer.py  ── version OpenRouter
 import os
 import json
 import pandas as pd
+import requests
 from datetime import date
 from dotenv import load_dotenv
 from database.db_manager import DBManager
 
 load_dotenv()
 
-OLLAMA_HOST  = os.getenv("OLLAMA_HOST",  "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3")
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODEL = os.getenv(
+    "OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct:free"
+)
 
 
 def build_context(db: DBManager) -> str:
@@ -38,9 +40,10 @@ STATISTIQUES SALARIALES (TND/mois):
     return context
 
 
-def summarize_market() -> dict:
-    db      = DBManager()
-    context = build_context(db)
+def _generate_summary(context: str) -> tuple[str, int]:
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not configured")
 
     system_prompt = (
         "Tu es un expert du marché de l'emploi tunisien. "
@@ -52,32 +55,45 @@ def summarize_market() -> dict:
         "4) recommandations pour les candidats."
     )
 
-    # ── Appel Ollama (client Python officiel) ──────────────────────────────
-    response = ollama.chat(
-        model=OLLAMA_MODEL,
-        messages=[
-            {"role": "system",  "content": system_prompt},
-            {"role": "user",    "content": context},
-        ],
-        options={
-            "temperature": 0.3,    # réponses factuelles, peu créatives
-            "num_predict": 600,    # ~300 mots
-        }
+    response = requests.post(
+        OPENROUTER_URL,
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": OPENROUTER_MODEL,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": context},
+            ],
+            "temperature": 0.3,
+            "max_tokens": 600,
+        },
+        timeout=120,
+    )
+    if not response.ok:
+        raise RuntimeError(
+            f"OpenRouter request failed ({response.status_code}): "
+            f"{response.text[:500]}"
+        )
+    data = response.json()
+    return (
+        data["choices"][0]["message"]["content"],
+        data.get("usage", {}).get("completion_tokens", 0),
     )
 
-    summary_text  = response["message"]["content"]
-    tokens_used   = response.get("eval_count", 0)   # tokens générés
 
+def _save_summary(db: DBManager, summary_text: str, tokens_used: int) -> dict:
     result = {
-        "summary"      : summary_text,
-        "generated_at" : date.today().isoformat(),
-        "model"        : OLLAMA_MODEL,
-        "tokens_used"  : tokens_used,
+        "summary": summary_text,
+        "generated_at": date.today().isoformat(),
+        "model": OPENROUTER_MODEL,
+        "tokens_used": tokens_used,
     }
 
     db.save_ai_summary(result)
 
-    # Export CSV pour Power BI
     export_dir = os.getenv("EXPORT_DIR", "exports")
     os.makedirs(export_dir, exist_ok=True)
     pd.DataFrame([result]).to_csv(f"{export_dir}/ai_summary.csv", index=False)
@@ -85,43 +101,8 @@ def summarize_market() -> dict:
     return result
 
 
-# ── Fallback HTTP brut (si le client Python n'est pas installé) ────────────
-def summarize_market_http() -> dict:
-    """Alternative via requests directement sur l'API REST d'Ollama."""
-    import requests
-
+def summarize_market() -> dict:
     db      = DBManager()
     context = build_context(db)
-
-    payload = {
-        "model" : OLLAMA_MODEL,
-        "prompt": (
-            "Tu es un expert du marché de l'emploi tunisien. "
-            "Analyse et résume en français (max 300 mots):\n\n"
-            + context
-        ),
-        "stream"  : False,
-        "options" : {"temperature": 0.3, "num_predict": 600},
-    }
-
-    resp = requests.post(
-        f"{OLLAMA_HOST}/api/generate",
-        json=payload,
-        timeout=120
-    )
-    resp.raise_for_status()
-    data = resp.json()
-
-    result = {
-        "summary"      : data["response"],
-        "generated_at" : date.today().isoformat(),
-        "model"        : OLLAMA_MODEL,
-        "tokens_used"  : data.get("eval_count", 0),
-    }
-
-    db.save_ai_summary(result)
-    export_dir = os.getenv("EXPORT_DIR", "exports")
-    os.makedirs(export_dir, exist_ok=True)
-    pd.DataFrame([result]).to_csv(f"{export_dir}/ai_summary.csv", index=False)
-
-    return result
+    summary_text, tokens_used = _generate_summary(context)
+    return _save_summary(db, summary_text, tokens_used)

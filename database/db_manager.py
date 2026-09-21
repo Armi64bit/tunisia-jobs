@@ -27,7 +27,11 @@ class DBManager:
             f":{os.getenv('DB_PORT', '5432')}"
             f"/{os.getenv('DB_NAME', 'tunisia_jobs')}"
         )
-        self.engine = create_engine(db_url, pool_pre_ping=True)
+        self.engine = create_engine(
+            db_url,
+            pool_pre_ping=True,
+            connect_args={"options": "-c lc_messages=C"},
+        )
         self.Session = sessionmaker(bind=self.engine)
         logger.info("DBManager connected to database.")
 
@@ -368,7 +372,7 @@ class DBManager:
             """,
             {
                 "generated_at": result.get("generated_at", str(date.today())),
-                "model":        result.get("model", "ollama"),
+                "model":        result.get("model", "openrouter"),
                 "summary":      result.get("summary", ""),
                 "tokens_used":  result.get("tokens_used", 0),
             },
