@@ -1,6 +1,7 @@
 # scrapers/emploitunisie.py 
 import time, requests
 from bs4 import BeautifulSoup
+from tqdm import tqdm
 from scrapers.base_scraper import BaseScraper, make_driver
 
 BASE = 'https://www.emploitunisie.com'
@@ -68,7 +69,7 @@ class EmploiTunisieScraper(BaseScraper):
         driver   = None
         try:
             driver = make_driver()
-            for page in range(0, max_pages):
+            for page in tqdm(range(0, max_pages), desc='EmploiTunisie pages', unit='page'):
                 if driver is None or not self.is_driver_alive(driver):
                     self.logger.warning('Chrome session lost, restarting...')
                     try: driver.quit()

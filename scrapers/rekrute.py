@@ -1,6 +1,7 @@
 # scrapers/rekrute.py
 import requests, re
 from bs4 import BeautifulSoup
+from tqdm import tqdm
 from scrapers.base_scraper import BaseScraper
 
 BASE = 'https://www.rekrute.com'
@@ -19,7 +20,7 @@ class ReKruteScraper(BaseScraper):
 
     def run(self, max_pages: int = 10):
         all_jobs = []
-        for page in range(1, max_pages + 1):
+        for page in tqdm(range(1, max_pages + 1), desc='ReKrute pages', unit='page'):
             # Correct working URL (gNetwork=2 = Tunisia)
             url = f'{BASE}/offres.html?gNetwork=2&p={page}'
             try:

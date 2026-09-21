@@ -50,10 +50,7 @@ class BaseScraper:
     def clean_text(self, text: str) -> str:
         if not text:
             return ''
-        try:
-            return text.encode('latin-1').decode('utf-8')
-        except (UnicodeDecodeError, UnicodeEncodeError):
-            return text.encode('utf-8', errors='ignore').decode('utf-8')
+        return text.replace('\x00', '').strip()
 
     def is_driver_alive(self, driver) -> bool:
         try:

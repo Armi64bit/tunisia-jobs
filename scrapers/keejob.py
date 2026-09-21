@@ -1,6 +1,7 @@
 # scrapers/keejob.py 
 import requests, re
 from bs4 import BeautifulSoup
+from tqdm import tqdm
 from scrapers.base_scraper import BaseScraper
 
 BASE = 'https://www.keejob.com'
@@ -34,7 +35,7 @@ class KeeJobScraper(BaseScraper):
 
     def run(self, max_pages: int = 20):
         all_jobs = []
-        for page in range(1, max_pages + 1):
+        for page in tqdm(range(1, max_pages + 1), desc='KeeJob pages', unit='page'):
             url = f'{BASE}/offres-emploi/?page={page}'
             try:
                 resp = requests.get(url, headers=self.get_headers(),
