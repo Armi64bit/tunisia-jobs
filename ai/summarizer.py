@@ -11,7 +11,7 @@ load_dotenv()
 
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = os.getenv(
-    "OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct:free"
+    "OPENROUTER_MODEL", "openrouter/free"
 )
 
 

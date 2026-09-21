@@ -109,8 +109,8 @@ psql -U postgres -d tunisia_jobs -f database/schema.sql
 ### 4. Configure OpenRouter
 
 Add your OpenRouter API key to `.env` as `OPENROUTER_API_KEY`. The default
-model is `meta-llama/llama-3-8b-instruct`; set `OPENROUTER_MODEL` to another
-OpenRouter model when needed.
+model is `openrouter/free`, which automatically selects an available free
+model. Set `OPENROUTER_MODEL` to another OpenRouter model when needed.
 
 ### 5. Run the pipeline
 
@@ -125,6 +125,13 @@ CV. The scraper searches Tunisia jobs using up to ten recognized terms:
 
 ```bash
 python main.py --once --cv path\to\cv.pdf
+```
+
+To regenerate the analysis and AI summary from jobs already in PostgreSQL,
+skip scraping:
+
+```bash
+python main.py --once --skip-scraping
 ```
 
 Supported CV formats are `.pdf`, `.txt`, and `.md`. Without `--cv`, the

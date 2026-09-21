@@ -24,7 +24,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(), logging.FileHandler('scrape.log')]
 )
 
-def full_pipeline(cv_path=None):
+def full_pipeline(cv_path=None, skip_scraping=False):
     logging.info('=== Pipeline started ===')
 
     cv_keywords = None
@@ -33,16 +33,19 @@ def full_pipeline(cv_path=None):
         cv_keywords = keywords_from_cv(cv_text)
         logging.info('CV search terms: %s', ', '.join(cv_keywords))
 
-    for scraper in [KeeJobScraper(), EmploiTunisieScraper(),
-                    ReKruteScraper(), LinkedInScraper()]:
-        try:
-            if isinstance(scraper, LinkedInScraper):
-                n = scraper.run(keywords=cv_keywords)
-            else:
-                n = scraper.run()
-            logging.info(f'{scraper.source}: {n} new jobs inserted')
-        except Exception as e:
-            logging.error(f'{scraper.source} failed: {e}')
+    if skip_scraping:
+        logging.info('Scraping skipped; using jobs already stored in the database.')
+    else:
+        for scraper in [KeeJobScraper(), EmploiTunisieScraper(),
+                        ReKruteScraper(), LinkedInScraper()]:
+            try:
+                if isinstance(scraper, LinkedInScraper):
+                    n = scraper.run(keywords=cv_keywords)
+                else:
+                    n = scraper.run()
+                logging.info(f'{scraper.source}: {n} new jobs inserted')
+            except Exception as e:
+                logging.error(f'{scraper.source} failed: {e}')
 
     skills_df = run_skills_analysis()
     run_salary_analysis()
@@ -63,7 +66,7 @@ if __name__ == '__main__':
             if cv_index >= len(sys.argv):
                 raise SystemExit('Usage: python main.py --once --cv path\\to\\cv.pdf')
             cv_path = sys.argv[cv_index]
-        full_pipeline(cv_path)
+        full_pipeline(cv_path, skip_scraping='--skip-scraping' in sys.argv)
     else:
         schedule.every().day.at('07:00').do(full_pipeline)
         logging.info('Scheduler started — daily run at 07:00')

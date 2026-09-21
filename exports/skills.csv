@@ -1,0 +1,62 @@
+﻿skill,category,job_count,pct_jobs
+communication,soft,72,24.7
+organisation,soft,67,22.9
+rigueur,soft,58,19.9
+français,language,58,19.9
+management,soft,36,12.3
+autonomie,soft,35,12.0
+anglais,language,32,11.0
+excel,data,27,9.2
+leadership,soft,17,5.8
+arabe,language,9,3.1
+autocad,tools,8,2.7
+travail en équipe,soft,7,2.4
+microsoft office,tools,7,2.4
+sap,erp,5,1.7
+odoo,erp,4,1.4
+photoshop,tools,4,1.4
+illustrator,tools,4,1.4
+english,language,3,1.0
+traitement de données,data,3,1.0
+git,devops,3,1.0
+postgresql,database,3,1.0
+power bi,data,2,0.7
+bi,data,2,0.7
+agile,tools,2,0.7
+ms office,tools,2,0.7
+cloud,devops,2,0.7
+.net,backend,2,0.7
+sql,data,2,0.7
+sql server,database,2,0.7
+react,frontend,2,0.7
+python,backend,2,0.7
+solidworks,tools,2,0.7
+french,language,1,0.3
+javascript,frontend,1,0.3
+html,frontend,1,0.3
+css,frontend,1,0.3
+devops,devops,1,0.3
+typescript,frontend,1,0.3
+node.js,backend,1,0.3
+machine learning,data,1,0.3
+nlp,data,1,0.3
+data science,data,1,0.3
+sage,erp,1,0.3
+italien,language,1,0.3
+figma,tools,1,0.3
+vue,frontend,1,0.3
+php,backend,1,0.3
+symfony,backend,1,0.3
+docker,devops,1,0.3
+kubernetes,devops,1,0.3
+jenkins,devops,1,0.3
+gitlab,devops,1,0.3
+aws,devops,1,0.3
+azure,devops,1,0.3
+ci/cd,devops,1,0.3
+mysql,database,1,0.3
+scrum,tools,1,0.3
+jira,tools,1,0.3
+trello,tools,1,0.3
+analyse de données,data,1,0.3
+java,backend,1,0.3
