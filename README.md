@@ -23,7 +23,7 @@ Scraping (Python + Selenium)
         ↓
 PostgreSQL Database (7 tables)
         ↓
-Analysis (NLP + pandas)     →    AI Summary (Ollama / LLaMA3)
+Analysis (NLP + pandas)     →    AI Summary (OpenRouter / LLaMA3)
         ↓
 Data Cleaning (data/clean_data.py)
         ↓
@@ -55,7 +55,7 @@ tunisia-jobs/
 │   ├── clean_data.py          # Title/location/contract normalization
 │   └── export_data.py         # Export 10 Power BI-ready CSVs
 ├── ai/
-│   └── summarizer.py          # Ollama LLaMA3 market trend summaries
+│   └── summarizer.py          # OpenRouter LLaMA3 market trend summaries
 ├── exports/                   # Auto-generated CSVs for Power BI
 ├── main.py                    # Pipeline orchestrator + daily scheduler
 ├── update_descriptions.py     # Backfill job descriptions from detail pages
@@ -73,7 +73,7 @@ tunisia-jobs/
 | Scraping | Python, Selenium, BeautifulSoup, Requests |
 | Storage | PostgreSQL, SQLAlchemy |
 | Analysis | pandas, NLTK, scikit-learn |
-| AI | Ollama (LLaMA3 — 100% local, free) |
+| AI | OpenRouter (LLaMA 3 API) |
 | Orchestration | schedule |
 | Export | pandas CSV |
 | Visualization | Power BI |
@@ -96,7 +96,7 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Fill in DB credentials and Ollama settings
+# Fill in DB credentials and OpenRouter settings
 ```
 
 ### 3. Set up PostgreSQL
@@ -106,13 +106,11 @@ psql -U postgres -c "CREATE DATABASE tunisia_jobs;"
 psql -U postgres -d tunisia_jobs -f database/schema.sql
 ```
 
-### 4. Install & start Ollama
+### 4. Configure OpenRouter
 
-```bash
-# Download from https://ollama.com
-ollama pull llama3
-# Ollama starts automatically on port 11434
-```
+Add your OpenRouter API key to `.env` as `OPENROUTER_API_KEY`. The default
+model is `meta-llama/llama-3-8b-instruct`; set `OPENROUTER_MODEL` to another
+OpenRouter model when needed.
 
 ### 5. Run the pipeline
 
@@ -121,6 +119,16 @@ python main.py --once
 ```
 
 This single command runs: **scrape → analyze → AI summary → clean → export**
+
+To search LinkedIn using skills and roles found in a CV, provide a PDF or text
+CV. The scraper searches Tunisia jobs using up to ten recognized terms:
+
+```bash
+python main.py --once --cv path\to\cv.pdf
+```
+
+Supported CV formats are `.pdf`, `.txt`, and `.md`. Without `--cv`, the
+default broad LinkedIn keyword list is used.
 
 ---
 
@@ -200,7 +208,7 @@ scrape_logs   -- Scraping audit log
 ## Notes
 
 - LinkedIn scraping uses public job listings only (no login required)
-- Ollama runs entirely locally — no API costs
+- AI summaries use OpenRouter and require an API key
 - ReKrute yields fewer results due to server-side rate limiting
 - Run `update_descriptions.py` after each pipeline run to backfill descriptions for new jobs
 

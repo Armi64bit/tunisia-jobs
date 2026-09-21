@@ -3,6 +3,7 @@ import sys, os
 sys.path.insert(0, os.path.dirname(__file__))
 
 import schedule, time, logging, urllib3
+from cv_matching import extract_cv_text, keywords_from_cv
 from scrapers.keejob import KeeJobScraper
 from scrapers.linkedin        import LinkedInScraper
 from scrapers.emploitunisie      import EmploiTunisieScraper
@@ -23,13 +24,22 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(), logging.FileHandler('scrape.log')]
 )
 
-def full_pipeline():
+def full_pipeline(cv_path=None):
     logging.info('=== Pipeline started ===')
+
+    cv_keywords = None
+    if cv_path:
+        cv_text = extract_cv_text(cv_path)
+        cv_keywords = keywords_from_cv(cv_text)
+        logging.info('CV search terms: %s', ', '.join(cv_keywords))
 
     for scraper in [KeeJobScraper(), EmploiTunisieScraper(),
                     ReKruteScraper(), LinkedInScraper()]:
         try:
-            n = scraper.run()
+            if isinstance(scraper, LinkedInScraper):
+                n = scraper.run(keywords=cv_keywords)
+            else:
+                n = scraper.run()
             logging.info(f'{scraper.source}: {n} new jobs inserted')
         except Exception as e:
             logging.error(f'{scraper.source} failed: {e}')
@@ -47,7 +57,13 @@ def full_pipeline():
 
 if __name__ == '__main__':
     if '--once' in sys.argv:
-        full_pipeline()
+        cv_path = None
+        if '--cv' in sys.argv:
+            cv_index = sys.argv.index('--cv') + 1
+            if cv_index >= len(sys.argv):
+                raise SystemExit('Usage: python main.py --once --cv path\\to\\cv.pdf')
+            cv_path = sys.argv[cv_index]
+        full_pipeline(cv_path)
     else:
         schedule.every().day.at('07:00').do(full_pipeline)
         logging.info('Scheduler started — daily run at 07:00')

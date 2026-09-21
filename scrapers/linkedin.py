@@ -2,6 +2,7 @@
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from tqdm import tqdm
 from scrapers.base_scraper import BaseScraper, make_driver
 import time
 
@@ -96,13 +97,14 @@ class LinkedInScraper(BaseScraper):
                 continue
         return jobs
 
-    def run(self):
+    def run(self, keywords=None):
         driver   = make_driver()
         all_jobs = []
         seen_urls = set()
+        search_keywords = keywords or KEYWORDS
 
         try:
-            for kw in KEYWORDS:
+            for kw in tqdm(search_keywords, desc='LinkedIn searches', unit='keyword'):
                 if not self.is_driver_alive(driver):
                     self.logger.warning('LinkedIn: Chrome crashed, restarting...')
                     try: driver.quit()
