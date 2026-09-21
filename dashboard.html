@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tunisia Jobs Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/dist/papaparse.min.js"></script>
+    <script>
+        // Fallback if CDN fails
+        if (typeof Papa === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"><\/script>');
+        }
+        if (typeof Chart === 'undefined') {
+            document.write('<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"><\/script>');
+        }
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #333; line-height: 1.6; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        header { background: #1e3a5f; color: white; padding: 24px; border-radius: 8px; margin-bottom: 24px; }
+        header h1 { font-size: 1.8rem; margin-bottom: 8px; }
+        header p { opacity: 0.9; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 24px; }
+        .stat-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .stat-card h3 { font-size: 0.85rem; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .stat-card .value { font-size: 2rem; font-weight: 700; color: #1e3a5f; }
+        .chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 20px; margin-bottom: 24px; }
+        .chart-card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .chart-card h3 { margin-bottom: 16px; font-size: 1.1rem; color: #1e3a5f; }
+        .chart-card canvas { max-height: 300px; }
+        .table-card { background: white; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden; margin-bottom: 24px; }
+        .table-card h3 { padding: 20px; border-bottom: 1px solid #eee; font-size: 1.1rem; color: #1e3a5f; }
+        .table-header { display: flex; gap: 12px; padding: 16px 20px; border-bottom: 1px solid #eee; flex-wrap: wrap; align-items: center; }
+        .table-header select, .table-header input { padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9rem; }
+        .table-header select { min-width: 150px; }
+        .table-header input { flex: 1; min-width: 200px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
+        th { background: #f8f9fa; font-weight: 600; color: #555; font-size: 0.85rem; text-transform: uppercase; }
+        tr:hover { background: #f8f9fa; }
+        .badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 0.75rem; font-weight: 600; }
+        .badge-cdi { background: #e8f5e9; color: #2e7d32; }
+        .badge-cdd { background: #fff3e0; color: #ef6c00; }
+        .badge-sivp { background: #e3f2fd; color: #1565c0; }
+        .badge-unknown { background: #f5f5f5; color: #757575; }
+        .badge-high { background: #e8f5e9; color: #2e7d32; }
+        .badge-medium { background: #fff3e0; color: #ef6c00; }
+        .badge-low { background: #ffebee; color: #c62828; }
+        .source-keejob { color: #e53935; font-weight: 600; }
+        .source-linkedin { color: #0077b5; font-weight: 600; }
+        .source-rekrute { color: #ff6b00; font-weight: 600; }
+        .source-emploitunisie { color: #009688; font-weight: 600; }
+        .recommendation-postuler { background: #e8f5e9; color: #2e7d32; }
+        .recommendation-peut-etre { background: #fff3e0; color: #ef6c00; }
+        .recommendation-ignorer { background: #ffebee; color: #c62828; }
+        .job-summary { font-size: 0.85rem; color: #555; margin-top: 4px; }
+        .job-match-reason { font-size: 0.8rem; color: #1e3a5f; margin-top: 4px; font-style: italic; }
+        .job-skills { font-size: 0.75rem; color: #888; margin-top: 4px; }
+        .loading { text-align: center; padding: 40px; color: #666; }
+        .error { color: #c62828; background: #ffebee; padding: 16px; border-radius: 4px; margin: 16px; }
+        .section-title { display: flex; justify-content: space-between; align-items: center; }
+        .section-title h3 { margin: 0; }
+        .cv-match-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; padding: 16px 20px; background: #f8f9fa; border-radius: 8px 8px 0 0; border-bottom: 1px solid #eee; }
+        .cv-match-stat { text-align: center; }
+        .cv-match-stat .val { font-size: 1.5rem; font-weight: 700; color: #1e3a5f; }
+        .cv-match-stat .lbl { font-size: 0.75rem; color: #666; text-transform: uppercase; }
+        @media (max-width: 768px) {
+            .chart-grid { grid-template-columns: 1fr; }
+            .container { padding: 12px; }
+            .table-header { flex-direction: column; align-items: stretch; }
+            .table-header select, .table-header input { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🇹🇳 Tunisia Jobs Dashboard</h1>
+            <p>Real-time job market analytics from KeeJob, LinkedIn, ReKrute & EmploiTunisie</p>
+        </header>
+
+        <div id="error-container"></div>
+
+        <div class="stats-grid" id="stats-grid">
+            <div class="stat-card"><h3>Total Jobs</h3><div class="value" id="stat-total">—</div></div>
+            <div class="stat-card"><h3>Sources</h3><div class="value" id="stat-sources">—</div></div>
+            <div class="stat-card"><h3>Locations</h3><div class="value" id="stat-locations">—</div></div>
+            <div class="stat-card"><h3>Skills Tracked</h3><div class="value" id="stat-skills">—</div></div>
+        </div>
+
+        <div class="chart-grid">
+            <div class="chart-card">
+                <h3>Jobs by Source</h3>
+                <canvas id="chart-source"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Jobs by Contract Type</h3>
+                <canvas id="chart-contract"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Top 10 Locations</h3>
+                <canvas id="chart-location"></canvas>
+            </div>
+            <div class="chart-card">
+                <h3>Top 15 Skills</h3>
+                <canvas id="chart-skills"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-grid">
+            <div class="chart-card" style="grid-column: 1 / -1;">
+                <h3>Monthly Job Trends</h3>
+                <canvas id="chart-monthly"></canvas>
+            </div>
+        </div>
+
+        <!-- CV Matches Section -->
+        <div class="table-card" id="cv-matches-section" style="display: none;">
+            <div class="cv-match-stats" id="cv-match-stats"></div>
+            <div class="table-header">
+                <select id="cv-filter-recommendation" onchange="filterCVMatches()">
+                    <option value="">All Recommendations</option>
+                    <option value="postuler">Postuler</option>
+                    <option value="peut-etre">Peut-être</option>
+                    <option value="ignorer">Ignorer</option>
+                </select>
+                <select id="cv-filter-score" onchange="filterCVMatches()">
+                    <option value="">All Scores</option>
+                    <option value="80">80+ (High)</option>
+                    <option value="60">60+ (Medium)</option>
+                    <option value="40">40+ (Low)</option>
+                </select>
+                <input type="text" id="cv-filter-search" placeholder="Search title, company, reason..." oninput="filterCVMatches()">
+            </div>
+            <div id="cv-matches-table" class="loading">Loading CV matches...</div>
+        </div>
+
+        <div class="table-card">
+            <div class="section-title">
+                <h3>Latest Job Listings</h3>
+            </div>
+            <div class="table-header">
+                <select id="jobs-filter-source" onchange="filterJobsTable()">
+                    <option value="">All Sources</option>
+                    <option value="keejob">KeeJob</option>
+                    <option value="linkedin">LinkedIn</option>
+                    <option value="rekrute">ReKrute</option>
+                    <option value="emploitunisie">EmploiTunisie</option>
+                </select>
+                <select id="jobs-filter-contract" onchange="filterJobsTable()">
+                    <option value="">All Contracts</option>
+                    <option value="cdi">CDI</option>
+                    <option value="cdd">CDD</option>
+                    <option value="sivp">SIVP</option>
+                </select>
+                <input type="text" id="jobs-filter-search" placeholder="Search title, company, location..." oninput="filterJobsTable()">
+            </div>
+            <div id="jobs-table" class="loading">Loading jobs...</div>
+        </div>
+    </div>
+
+    <script>
+        const CSV_FILES = {
+            jobs: 'exports/jobs_clean.csv',
+            skills: 'exports/skills.csv',
+            locations: 'exports/by_location.csv',
+            contracts: 'exports/by_contract.csv',
+            monthly: 'exports/monthly_total.csv',
+            monthlySource: 'exports/monthly_by_source.csv',
+            cvMatches: 'exports/cv_matches.csv'
+        };
+
+        let allData = {};
+        let filteredCVMatches = [];
+
+        function showError(msg) {
+            document.getElementById('error-container').innerHTML = `<div class="error">${msg}</div>`;
+        }
+
+        async function loadCSV(name, url) {
+            return new Promise((resolve, reject) => {
+                Papa.parse(url, {
+                    download: true,
+                    header: true,
+                    skipEmptyLines: true,
+                    complete: (results) => {
+                        if (results.errors.length) {
+                            console.warn(`CSV ${name} parse warnings:`, results.errors);
+                        }
+                        allData[name] = results.data;
+                        resolve(results.data);
+                    },
+                    error: (err) => reject(err)
+                });
+            });
+        }
+
+        async function loadAllData() {
+            try {
+                await Promise.all([
+                    loadCSV('jobs', CSV_FILES.jobs),
+                    loadCSV('skills', CSV_FILES.skills),
+                    loadCSV('locations', CSV_FILES.locations),
+                    loadCSV('contracts', CSV_FILES.contracts),
+                    loadCSV('monthly', CSV_FILES.monthly),
+                    loadCSV('monthlySource', CSV_FILES.monthlySource),
+                    loadCSV('cvMatches', CSV_FILES.cvMatches)
+                ]);
+                renderDashboard();
+            } catch (err) {
+                showError(`Failed to load data: ${err.message}. Make sure you're serving this file via HTTP (not file://) and CSV files exist in exports/.`);
+                console.error(err);
+            }
+        }
+
+        function renderDashboard() {
+            renderStats();
+            renderCharts();
+            renderCVMatches();
+            renderJobsTable();
+        }
+
+        function renderStats() {
+            const jobs = allData.jobs || [];
+            const skills = allData.skills || [];
+            const locations = allData.locations || [];
+            const sources = new Set(jobs.map(j => j.source_label)).size;
+
+            document.getElementById('stat-total').textContent = jobs.length.toLocaleString();
+            document.getElementById('stat-sources').textContent = sources;
+            document.getElementById('stat-locations').textContent = locations.length;
+            document.getElementById('stat-skills').textContent = skills.length;
+        }
+
+        function getChartColors(count) {
+            const palette = ['#1e3a5f', '#e53935', '#0077b5', '#ff6b00', '#009688', '#7b1fa2', '#c62828', '#2e7d32', '#ef6c00', '#006064'];
+            return Array.from({length: count}, (_, i) => palette[i % palette.length]);
+        }
+
+        function renderCharts() {
+            renderSourceChart();
+            renderContractChart();
+            renderLocationChart();
+            renderSkillsChart();
+            renderMonthlyChart();
+        }
+
+        function renderSourceChart() {
+            const data = allData.monthlySource || [];
+            const sourceCounts = {};
+            data.forEach(d => {
+                sourceCounts[d.source_label] = (sourceCounts[d.source_label] || 0) + parseInt(d.job_count);
+            });
+            const labels = Object.keys(sourceCounts);
+            const values = Object.values(sourceCounts);
+
+            new Chart(document.getElementById('chart-source'), {
+                type: 'doughnut',
+                data: { labels, datasets: [{ data: values, backgroundColor: getChartColors(labels.length), borderWidth: 0 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+            });
+        }
+
+        function renderContractChart() {
+            const data = allData.contracts || [];
+            const labels = data.map(d => d.contract_clean);
+            const values = data.map(d => parseInt(d.job_count));
+
+            new Chart(document.getElementById('chart-contract'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Jobs', data: values, backgroundColor: '#1e3a5f', borderRadius: 4 }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+            });
+        }
+
+        function renderLocationChart() {
+            const data = (allData.locations || []).slice(0, 10);
+            const labels = data.map(d => d.location_clean.length > 20 ? d.location_clean.substring(0, 20) + '…' : d.location_clean);
+            const values = data.map(d => parseInt(d.job_count));
+
+            new Chart(document.getElementById('chart-location'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: 'Jobs', data: values, backgroundColor: '#0077b5', borderRadius: 4, indexAxis: 'y' }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } }
+            });
+        }
+
+        function renderSkillsChart() {
+            const data = (allData.skills || []).slice(0, 15);
+            const labels = data.map(d => d.skill);
+            const values = data.map(d => parseFloat(d.pct_jobs));
+
+            new Chart(document.getElementById('chart-skills'), {
+                type: 'bar',
+                data: { labels, datasets: [{ label: '% of Jobs', data: values, backgroundColor: '#e53935', borderRadius: 4, indexAxis: 'y' }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true, title: { display: true, text: '% of Jobs' } } } }
+            });
+        }
+
+        function renderMonthlyChart() {
+            const data = allData.monthly || [];
+            const labels = data.map(d => d.year_month);
+            const values = data.map(d => parseInt(d.total_jobs));
+
+            new Chart(document.getElementById('chart-monthly'), {
+                type: 'line',
+                data: { labels, datasets: [{ label: 'Total Jobs', data: values, borderColor: '#1e3a5f', backgroundColor: 'rgba(30,58,95,0.1)', fill: true, tension: 0.3, pointRadius: 6, pointBackgroundColor: '#1e3a5f' }] },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+            });
+        }
+
+        function getContractBadge(contract) {
+            const c = (contract || '').toLowerCase();
+            if (c.includes('cdi')) return '<span class="badge badge-cdi">CDI</span>';
+            if (c.includes('cdd')) return '<span class="badge badge-cdd">CDD</span>';
+            if (c.includes('sivp')) return '<span class="badge badge-sivp">SIVP</span>';
+            return '<span class="badge badge-unknown">—</span>';
+        }
+
+        function getScoreBadge(score) {
+            const s = parseInt(score) || 0;
+            if (s >= 80) return '<span class="badge badge-high">' + s + '%</span>';
+            if (s >= 60) return '<span class="badge badge-medium">' + s + '%</span>';
+            return '<span class="badge badge-low">' + s + '%</span>';
+        }
+
+        function getRecommendationBadge(rec) {
+            const r = (rec || '').toLowerCase();
+            const cls = 'recommendation-' + r;
+            const label = r === 'postuler' ? 'Postuler' : r === 'peut-etre' ? 'Peut-être' : r === 'ignorer' ? 'Ignorer' : '—';
+            return '<span class="badge ' + cls + '">' + label + '</span>';
+        }
+
+        function getSourceClass(source) {
+            return 'source-' + (source || '').toLowerCase().replace(/\s+/g, '');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function parseSkills(skillsStr) {
+            try {
+                // Handle PostgreSQL array format: {skill1,skill2}
+                if (skillsStr.startsWith('{')) {
+                    return skillsStr.slice(1, -1).split(',').map(s => s.trim()).filter(Boolean);
+                }
+                return JSON.parse(skillsStr);
+            } catch {
+                return [];
+            }
+        }
+
+        function renderCVMatches() {
+            const matches = allData.cvMatches || [];
+
+            if (!matches.length) {
+                document.getElementById('cv-matches-section').style.display = 'none';
+                return;
+            }
+
+            document.getElementById('cv-matches-section').style.display = 'block';
+            filteredCVMatches = [...matches];
+
+            // Stats
+            const total = matches.length;
+            const high = matches.filter(m => parseInt(m.match_score) >= 80).length;
+            const medium = matches.filter(m => parseInt(m.match_score) >= 60 && parseInt(m.match_score) < 80).length;
+            const low = matches.filter(m => parseInt(m.match_score) < 60).length;
+            const toApply = matches.filter(m => m.recommendation === 'postuler').length;
+
+            document.getElementById('cv-match-stats').innerHTML = `
+                <div class="cv-match-stat"><div class="val">${total}</div><div class="lbl">Total Matches</div></div>
+                <div class="cv-match-stat"><div class="val">${toApply}</div><div class="lbl">Recommended</div></div>
+                <div class="cv-match-stat"><div class="val">${high}</div><div class="lbl">High Match (80+)</div></div>
+                <div class="cv-match-stat"><div class="val">${medium}</div><div class="lbl">Medium (60-79)</div></div>
+                <div class="cv-match-stat"><div class="val">${low}</div><div class="lbl">Low (<60)</div></div>
+            `;
+
+            renderCVMatchesTable(filteredCVMatches);
+        }
+
+        function filterCVMatches() {
+            const recFilter = document.getElementById('cv-filter-recommendation').value;
+            const scoreFilter = document.getElementById('cv-filter-score').value;
+            const searchFilter = document.getElementById('cv-filter-search').value.toLowerCase();
+
+            filteredCVMatches = (allData.cvMatches || []).filter(m => {
+                if (recFilter && m.recommendation !== recFilter) return false;
+                if (scoreFilter && parseInt(m.match_score) < parseInt(scoreFilter)) return false;
+                if (searchFilter) {
+                    const searchText = (m.title + ' ' + m.company + ' ' + m.why_good_match + ' ' + m.summary).toLowerCase();
+                    if (!searchText.includes(searchFilter)) return false;
+                }
+                return true;
+            });
+
+            renderCVMatchesTable(filteredCVMatches);
+        }
+
+        function renderCVMatchesTable(matches) {
+            if (!matches.length) {
+                document.getElementById('cv-matches-table').innerHTML = '<div class="loading">No matching jobs found</div>';
+                return;
+            }
+
+            let html = `
+                <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Match</th>
+                            <th>Title</th>
+                            <th>Company</th>
+                            <th>Location</th>
+                            <th>Contract</th>
+                            <th>Source</th>
+                            <th>Summary</th>
+                            <th>Why Good Match</th>
+                            <th>Missing Skills</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            matches.forEach(job => {
+                const skills = parseSkills(job.missing_skills || '[]');
+                html += `
+                    <tr>
+                        <td>${getScoreBadge(job.match_score)} ${getRecommendationBadge(job.recommendation)}</td>
+                        <td><strong>${escapeHtml(job.title || '')}</strong></td>
+                        <td>${escapeHtml(job.company_name || job.company || '—')}</td>
+                        <td>${escapeHtml(job.location || '—')}</td>
+                        <td>${getContractBadge(job.contract)}</td>
+                        <td><span class="${getSourceClass(job.source)}">${escapeHtml(job.source)}</span></td>
+                        <td><div class="job-summary">${escapeHtml(job.summary || '—')}</div></td>
+                        <td><div class="job-match-reason">${escapeHtml(job.why_good_match || '—')}</div></td>
+                        <td><div class="job-skills">${skills.length ? skills.map(s => '<span class="badge badge-unknown" style="margin:2px;">' + escapeHtml(s) + '</span>').join(' ') : '—'}</div></td>
+                        <td><a href="${escapeHtml(job.source_url)}" target="_blank" style="color:#1e3a5f;text-decoration:none;font-weight:600;">View →</a></td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table></div>';
+            if (matches.length < (allData.cvMatches || []).length) {
+                html += `<p style="padding: 16px; text-align: center; color: #666;">Showing ${matches.length} of ${allData.cvMatches.length} matches</p>`;
+            }
+            document.getElementById('cv-matches-table').innerHTML = html;
+        }
+
+        function renderJobsTable() {
+            const jobs = allData.jobs || [];
+
+            if (!jobs.length) {
+                document.getElementById('jobs-table').innerHTML = '<div class="loading">No job data available</div>';
+                return;
+            }
+
+            renderFilteredJobs(jobs);
+        }
+
+        function filterJobsTable() {
+            const sourceFilter = document.getElementById('jobs-filter-source').value;
+            const contractFilter = document.getElementById('jobs-filter-contract').value;
+            const searchFilter = document.getElementById('jobs-filter-search').value.toLowerCase();
+
+            const filtered = (allData.jobs || []).filter(job => {
+                if (sourceFilter && job.source_label !== sourceFilter) return false;
+                if (contractFilter && !job.contract_clean.toLowerCase().includes(contractFilter)) return false;
+                if (searchFilter) {
+                    const searchText = (job.title_clean + ' ' + job.company + ' ' + job.location_clean).toLowerCase();
+                    if (!searchText.includes(searchFilter)) return false;
+                }
+                return true;
+            });
+
+            renderFilteredJobs(filtered);
+        }
+
+        function renderFilteredJobs(jobs) {
+            const displayJobs = jobs.slice(0, 100);
+
+            let html = `
+                <div style="overflow-x: auto;">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Title</th>
+                            <th>Company</th>
+                            <th>Location</th>
+                            <th>Contract</th>
+                            <th>Source</th>
+                            <th>Posted</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            displayJobs.forEach(job => {
+                html += `
+                    <tr>
+                        <td>${escapeHtml(job.title_clean || '')}</td>
+                        <td>${escapeHtml(job.company || '—')}</td>
+                        <td>${escapeHtml(job.location_clean || '—')}</td>
+                        <td>${getContractBadge(job.contract_clean)}</td>
+                        <td><span class="${getSourceClass(job.source_label)}">${escapeHtml(job.source_label)}</span></td>
+                        <td>${escapeHtml(job.posted_at || job.scrape_date || '')}</td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table></div>';
+            if (jobs.length > 100) {
+                html += `<p style="padding: 16px; text-align: center; color: #666;">Showing 100 of ${jobs.length} jobs</p>`;
+            }
+            document.getElementById('jobs-table').innerHTML = html;
+        }
+
+        function waitForLibs() {
+            if (typeof Papa !== 'undefined' && typeof Chart !== 'undefined') {
+                loadAllData();
+            } else {
+                setTimeout(waitForLibs, 100);
+            }
+        }
+        waitForLibs();
+    </script>
+</body>
+</html>

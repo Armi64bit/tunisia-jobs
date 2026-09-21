@@ -80,6 +80,25 @@ def export_all():
     except Exception as e:
         logging.warning(f'ai_summary skipped: {e}')
 
+    # 8. cv_matches.csv
+    try:
+        cv_matches = db.fetch("""
+            SELECT j.id, j.title, j.location, j.contract, j.experience,
+                   j.source, j.source_url, j.posted_at, j.scraped_at,
+                   c.name AS company_name,
+                   m.match_score, m.summary, m.why_good_match, m.missing_skills,
+                   m.recommendation, m.cv_keywords, m.created_at AS match_date
+            FROM cv_job_matches m
+            JOIN jobs j ON j.id = m.job_id
+            LEFT JOIN companies c ON c.id = j.company_id
+            ORDER BY m.match_score DESC, m.created_at DESC
+        """)
+        cv_matches.to_csv(f'{EXPORT_DIR}/cv_matches.csv',
+                          index=False, encoding='utf-8-sig')
+        logging.info(f'cv_matches.csv — {len(cv_matches)} rows')
+    except Exception as e:
+        logging.warning(f'cv_matches skipped: {e}')
+
     # Summary
     logging.info(f'\n=== {EXPORT_DIR}/ ===')
     for f in sorted(os.listdir(EXPORT_DIR)):

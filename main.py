@@ -4,6 +4,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 import schedule, time, logging, urllib3
 from cv_matching import extract_cv_text, keywords_from_cv
+from cv_job_matcher import run_cv_job_matching, export_cv_matches
 from scrapers.keejob import KeeJobScraper
 from scrapers.linkedin        import LinkedInScraper
 from scrapers.emploitunisie      import EmploiTunisieScraper
@@ -24,7 +25,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(), logging.FileHandler('scrape.log')]
 )
 
-def full_pipeline(cv_path=None, skip_scraping=False):
+def full_pipeline(cv_path=None, skip_scraping=False, run_cv_matching=False):
     logging.info('=== Pipeline started ===')
 
     cv_keywords = None
@@ -55,7 +56,17 @@ def full_pipeline(cv_path=None, skip_scraping=False):
     summary = summarize_market()
     logging.info(f'AI summary generated ({summary["tokens_used"]} tokens)')
 
+    # Run CV-based job matching if CV provided
+    if cv_path and run_cv_matching:
+        logging.info('Running CV-based job matching...')
+        try:
+            matched = run_cv_job_matching(cv_path, max_jobs=50)
+            logging.info(f'CV matching complete: {len(matched)} jobs analyzed')
+        except Exception as e:
+            logging.error(f'CV job matching failed: {e}')
+
     export_all()
+    export_cv_matches()
     logging.info('=== Pipeline complete ===')
 
 if __name__ == '__main__':
@@ -64,9 +75,13 @@ if __name__ == '__main__':
         if '--cv' in sys.argv:
             cv_index = sys.argv.index('--cv') + 1
             if cv_index >= len(sys.argv):
-                raise SystemExit('Usage: python main.py --once --cv path\\to\\cv.pdf')
+                raise SystemExit('Usage: python main.py --once --cv path\\to\\cv.pdf [--skip-scraping] [--match-cv]')
             cv_path = sys.argv[cv_index]
-        full_pipeline(cv_path, skip_scraping='--skip-scraping' in sys.argv)
+        full_pipeline(
+            cv_path,
+            skip_scraping='--skip-scraping' in sys.argv,
+            run_cv_matching='--match-cv' in sys.argv
+        )
     else:
         schedule.every().day.at('07:00').do(full_pipeline)
         logging.info('Scheduler started — daily run at 07:00')
