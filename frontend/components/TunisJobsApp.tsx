@@ -28,6 +28,14 @@ import type {
 
 const PER_SOURCE = [18, 10, 8, 14];
 
+const configuredApiBase = process.env.NEXT_PUBLIC_API_BASE_URL;
+const API_BASE = typeof window !== "undefined" &&
+  window.location.hostname !== "localhost" &&
+  window.location.hostname !== "127.0.0.1" &&
+  (!configuredApiBase || configuredApiBase.includes("localhost"))
+  ? `${window.location.protocol}//${window.location.hostname}:8001`
+  : configuredApiBase ?? "http://localhost:8001";
+
 function sourceName(id: SourceId): string {
   return SOURCES.find((s) => s.id === id)?.name ?? id;
 }
@@ -106,6 +114,7 @@ export default function TunisJobsApp() {
   const [pipelineSub, setPipelineSub] = useState("Ready");
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [matches, setMatches] = useState<MatchedJob[]>([]);
+  const [loadingMatches, setLoadingMatches] = useState(false);
   const [scrapeRuns, setScrapeRuns] = useState<ScrapeRun[]>([]);
   const [selectedScrapeRunId, setSelectedScrapeRunId] = useState<number | null>(null);
 
@@ -153,7 +162,7 @@ export default function TunisJobsApp() {
   const loadJobs = useCallback(async () => {
     setLoadingJobs(true);
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/jobs?limit=200`);
+      const response = await fetch(`${API_BASE}/jobs?limit=200`);
       if (response.ok) {
         const data = await response.json();
         setJobs(Array.isArray(data) ? data.map(normalizeJob) : JOBS);
@@ -168,9 +177,10 @@ export default function TunisJobsApp() {
   }, []);
 
   const loadCVMatches = useCallback(async (scrapeRunId?: number) => {
+    setLoadingMatches(true);
     try {
       const selected = scrapeRunId ? `&scrape_run_id=${scrapeRunId}` : "";
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/cv-matches?limit=100${selected}`);
+      const response = await fetch(`${API_BASE}/cv-matches?limit=100${selected}`);
       if (response.ok) {
         const data = await response.json();
         // Convert to MatchedJob format
@@ -197,12 +207,14 @@ export default function TunisJobsApp() {
       }
     } catch (e) {
       console.error("Failed to load CV matches:", e);
+    } finally {
+      setLoadingMatches(false);
     }
   }, []);
 
   const loadScrapeRuns = useCallback(async () => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/scrape-runs?limit=30`);
+      const response = await fetch(`${API_BASE}/scrape-runs?limit=30`);
       if (!response.ok) return;
       const data: ScrapeRun[] = await response.json();
       setScrapeRuns(data);
@@ -216,7 +228,7 @@ export default function TunisJobsApp() {
 
   const loadBackendState = useCallback(async () => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/health`);
+      const response = await fetch(`${API_BASE}/health`);
       if (response.ok) {
         setBackend({ online: true, label: "Backend: live" });
       } else {
@@ -236,7 +248,7 @@ export default function TunisJobsApp() {
 
   const pollPipelineStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/pipeline/status`);
+      const response = await fetch(`${API_BASE}/pipeline/status`);
       if (response.ok) {
         const status: PipelineStatus = await response.json();
         
@@ -281,7 +293,7 @@ export default function TunisJobsApp() {
       }
 
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/pipeline/run`, {
+        const response = await fetch(`${API_BASE}/pipeline/run`, {
           method: "POST",
           body: formData,
         });
@@ -315,6 +327,7 @@ export default function TunisJobsApp() {
   }, [loadCVMatches]);
 
   const matchDisabled = !cv || runState === "running";
+  const appBusy = loadingJobs || loadingMatches || runState === "running";
 
   const handleApply = useCallback(
     (job: Job) => {
@@ -333,7 +346,7 @@ export default function TunisJobsApp() {
 
   const downloadExport = useCallback(async (type: "cv-matches" | "jobs") => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/export/${type}`);
+      const response = await fetch(`${API_BASE}/export/${type}`);
       if (response.ok) {
         const blob = await response.blob();
         const url = window.URL.createObjectURL(blob);
@@ -355,6 +368,17 @@ export default function TunisJobsApp() {
 
   return (
     <div className="shell">
+      {appBusy && (
+        <div className="loading-veil" role="status" aria-live="polite" aria-label="Loading">
+          <div className="loading-card">
+            <span className="loading-orbit" aria-hidden="true"><span /></span>
+            <span className="loading-label">
+              {runState === "running" ? progress.label : loadingMatches ? "Loading matches" : "Loading jobs"}
+            </span>
+            {runState === "running" && <span className="loading-progress">{Math.round(progress.pct)}%</span>}
+          </div>
+        </div>
+      )}
       <header className="appbar">
         <div className="brand">
           <span className="brand-mark" aria-hidden="true">TJ</span>
