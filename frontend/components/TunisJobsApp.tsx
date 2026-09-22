@@ -7,12 +7,12 @@ import MatchesView from "./MatchesView";
 import ApplicationsView from "./ApplicationsView";
 import Sidebar from "./Sidebar";
 import Toast from "./Toast";
-import { JOBS, NEW_JOBS, SAMPLE_CV_NAME, SAMPLE_CV_SKILLS, SOURCES } from "../lib/demo-data";
+import { SAMPLE_CV_NAME, SAMPLE_CV_SKILLS, SOURCES } from "../lib/demo-data";
 import { skillScore } from "../lib/api";
 import { nextLogId, timeNow } from "../lib/format";
 import type {
-  BackendState,
   AppliedJob,
+  BackendState,
   CvInfo,
   Job,
   LogLine,
@@ -43,12 +43,21 @@ function sourceName(id: SourceId): string {
   return SOURCES.find((s) => s.id === id)?.name ?? id;
 }
 
+function normalizeSource(source: unknown): SourceId {
+  const value = String(source ?? "").trim().toLowerCase().replace(/[\s_-]+/g, "");
+  if (value.includes("emploi") || value.includes("emploitunisie")) return "emploitunisie";
+  if (value.includes("rekrute")) return "rekrute";
+  if (value.includes("linkedin")) return "linkedin";
+  if (value.includes("apify")) return "apify";
+  return "keejob";
+}
+
 function normalizeJob(job: any): Job {
   return {
     id: job.id,
     title: job.title ?? "",
     company: job.company ?? "",
-    source: job.source,
+    source: normalizeSource(job.source),
     city: job.city ?? job.location ?? "",
     contract: job.contract ?? "",
     date: job.date ?? job.posted_at ?? "",
@@ -100,6 +109,7 @@ function convertPipelineSteps(steps: PipelineStep[]): RunStep[] {
 export default function TunisJobsApp() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(true);
+  const [jobsError, setJobsError] = useState<string | null>(null);
   const [backend, setBackend] = useState<BackendState>({
     online: false,
     label: "Backend: connecting...",
@@ -166,16 +176,20 @@ export default function TunisJobsApp() {
 
   const loadJobs = useCallback(async () => {
     setLoadingJobs(true);
+    setJobsError(null);
     try {
       const response = await fetch(`${API_BASE}/jobs?limit=200`);
-      if (response.ok) {
-        const data = await response.json();
-        setJobs(Array.isArray(data) ? data.map(normalizeJob) : JOBS);
-      } else {
-        setJobs(JOBS);
+      if (!response.ok) {
+        throw new Error(`Backend returned ${response.status}`);
       }
-    } catch {
-      setJobs(JOBS);
+      const data = await response.json();
+      if (!Array.isArray(data)) {
+        throw new Error("Backend returned an invalid jobs payload");
+      }
+      setJobs(data.map(normalizeJob));
+    } catch (error) {
+      setJobs([]);
+      setJobsError(error instanceof Error ? error.message : "Could not load jobs");
     } finally {
       setLoadingJobs(false);
     }
@@ -195,7 +209,7 @@ export default function TunisJobsApp() {
             id: job.id,
             title: job.title,
             company: job.company,
-            source: job.source,
+            source: normalizeSource(job.source),
             city: job.location,
             contract: job.contract,
             date: job.posted_at,
@@ -261,7 +275,7 @@ export default function TunisJobsApp() {
           id: application.id,
           title: application.title ?? "",
           company: application.company ?? "",
-          source: application.source,
+          source: normalizeSource(application.source),
           city: application.location ?? "",
           contract: application.contract ?? "",
           date: application.posted_at ?? "",
@@ -527,6 +541,9 @@ export default function TunisJobsApp() {
           {view === "overview" && (
             <OverviewView
               jobs={jobs}
+              error={jobsError}
+              matches={matches}
+              applications={applications}
               sources={SOURCES as Source[]}
               cvLoaded={!!cv}
               onGoScraper={() => switchView("scraper")}

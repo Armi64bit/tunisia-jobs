@@ -1,9 +1,8 @@
 import { JOBS, SOURCES, SAMPLE_CV_SKILLS } from "./demo-data";
 import type { BackendState, Job, Source } from "./types";
 
-const isServer = typeof window === "undefined";
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001";
-const PROXY_BASE = isServer ? API_BASE : "/api/proxy";
+const REQUEST_BASE = API_BASE;
 
 export function getApiBaseUrl(): string {
   return API_BASE;
@@ -15,7 +14,7 @@ export function backendConfigured(): boolean {
 
 async function safeGet<T>(path: string): Promise<T | null> {
   try {
-    const res = await fetch(`${PROXY_BASE}${path}`, {
+    const res = await fetch(`${REQUEST_BASE}${path}`, {
       headers: { Accept: "application/json" },
     });
     if (!res.ok) return null;
@@ -32,7 +31,7 @@ async function safePost<T>(path: string, body: FormData | object): Promise<T | n
       headers: body instanceof FormData ? {} : { "Content-Type": "application/json" },
       body: body instanceof FormData ? body : JSON.stringify(body),
     };
-    const res = await fetch(`${PROXY_BASE}${path}`, options);
+    const res = await fetch(`${REQUEST_BASE}${path}`, options);
     if (!res.ok) return null;
     return (await res.json()) as T;
   } catch {
@@ -117,7 +116,7 @@ export async function startPipeline(
 
 export async function downloadExport(type: "cv-matches" | "jobs"): Promise<Blob | null> {
   try {
-    const res = await fetch(`${PROXY_BASE}/export/${type}`);
+    const res = await fetch(`${REQUEST_BASE}/export/${type}`);
     if (!res.ok) return null;
     return await res.blob();
   } catch {

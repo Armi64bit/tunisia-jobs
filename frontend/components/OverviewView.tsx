@@ -1,14 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { SOURCES, SAMPLE_CV_SKILLS } from "../lib/demo-data";
 import { skillScore } from "../lib/api";
-import type { Job, Source } from "../lib/types";
+import type { AppliedJob, Job, MatchedJob, Source } from "../lib/types";
 import { BoltIcon, SearchIcon } from "./icons";
 
 interface OverviewViewProps {
   jobs: Job[];
+  matches: MatchedJob[];
+  applications: AppliedJob[];
   sources: Source[];
   cvLoaded: boolean;
   onGoScraper: () => void;
+  error?: string | null;
   loading?: boolean;
 }
 
@@ -19,6 +22,8 @@ interface Agg {
   companies: Record<string, number>;
 }
 
+const PAGE_SIZE_OPTIONS = [5, 15, 25, 50];
+
 function aggregate(jobs: Job[]): Agg {
   const bySource: Record<string, number> = {};
   const companies: Record<string, number> = {};
@@ -26,7 +31,8 @@ function aggregate(jobs: Job[]): Agg {
   const byContract: Record<string, number> = {};
   jobs.forEach((j) => {
     bySource[j.source] = (bySource[j.source] || 0) + 1;
-    companies[j.company] = (companies[j.company] || 0) + 1;
+    const company = j.company.trim();
+    if (company) companies[company] = (companies[company] || 0) + 1;
     byCity[j.city] = (byCity[j.city] || 0) + 1;
     byContract[j.contract] = (byContract[j.contract] || 0) + 1;
   });
@@ -40,9 +46,12 @@ function aggregate(jobs: Job[]): Agg {
 
 export default function OverviewView({
   jobs,
+  matches,
+  applications,
   sources,
   cvLoaded,
   onGoScraper,
+  error = null,
   loading = false,
 }: OverviewViewProps) {
   const [q, setQ] = useState("");
@@ -50,6 +59,8 @@ export default function OverviewView({
   const [city, setCity] = useState("all");
   const [contract, setContract] = useState("all");
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
 
   const agg = useMemo(() => aggregate(jobs), [jobs]);
 
@@ -62,8 +73,18 @@ export default function OverviewView({
     const avgSkills = Math.round(
       jobs.reduce((acc, j) => acc + j.skills.length, 0) / Math.max(1, total),
     );
-    return { total, topCompany, avgSkills };
-  }, [jobs, agg]);
+    const strongMatches = matches.filter((match) => match.score >= 60).length;
+    const replied = applications.filter((application) => application.replied).length;
+    return {
+      total,
+      topCompany,
+      avgSkills,
+      matches: matches.length,
+      strongMatches,
+      tracked: applications.length,
+      waiting: applications.length - replied,
+    };
+  }, [jobs, agg, matches, applications]);
 
   const maxSource = useMemo(
     () =>
@@ -98,6 +119,17 @@ export default function OverviewView({
     });
   }, [jobs, q, src, city, contract]);
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visibleJobs = filtered.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [jobs, q, src, city, contract, pageSize]);
+
   const sourceName = (id: string) =>
     sources.find((s) => s.id === id)?.name ?? id;
 
@@ -129,30 +161,30 @@ export default function OverviewView({
       <div className="stat-grid">
         <div className="stat-card">
           <div className="od-stat" style={{ "--od-gap": "2px" } as React.CSSProperties}>
-            <span className="stat-num od-nowrap">{stats.total} <small>jobs</small></span>
-            <span className="stat-cap">Listings collected</span>
-            <span className="stat-delta flat">Across all boards</span>
+            <span className="stat-num od-nowrap">{stats.matches} <small>matches</small></span>
+            <span className="stat-cap">CV matches</span>
+            <span className="stat-delta flat">Ranked against your CV</span>
           </div>
         </div>
         <div className="stat-card">
           <div className="od-stat" style={{ "--od-gap": "2px" } as React.CSSProperties}>
-            <span className="stat-num od-nowrap">{sources.length} <small>sources</small></span>
-            <span className="stat-cap">Boards active</span>
-            <span className="stat-delta flat">keejob · rekrute · plus</span>
+            <span className="stat-num od-nowrap">{stats.strongMatches} <small>strong</small></span>
+            <span className="stat-cap">Strong matches</span>
+            <span className="stat-delta flat">Score 60% or higher</span>
           </div>
         </div>
         <div className="stat-card">
           <div className="od-stat" style={{ "--od-gap": "2px" } as React.CSSProperties}>
-            <span className="stat-num od-nowrap">{stats.avgSkills} <small>avg</small></span>
-            <span className="stat-cap">Skills per listing</span>
-            <span className="stat-delta flat">From parsed postings</span>
+            <span className="stat-num od-nowrap">{stats.tracked} <small>tracked</small></span>
+            <span className="stat-cap">Tracked applications</span>
+            <span className="stat-delta flat">Saved job offers</span>
           </div>
         </div>
         <div className="stat-card">
           <div className="od-stat" style={{ "--od-gap": "2px" } as React.CSSProperties}>
-            <span className="stat-num od-nowrap od-truncate">{stats.topCompany}</span>
-            <span className="stat-cap">Top employer</span>
-            <span className="stat-delta flat">By postings count</span>
+            <span className="stat-num od-nowrap">{stats.waiting} <small>waiting</small></span>
+            <span className="stat-cap">Awaiting replies</span>
+            <span className="stat-delta flat">Follow-up queue</span>
           </div>
         </div>
       </div>
@@ -287,11 +319,15 @@ export default function OverviewView({
           {filtered.length === 0 && (
             <div className="empty-state">
               <SearchIcon />
-              <strong>No listings match</strong>
-              <p>Try clearing a filter or widening the search, then run a fresh scrape.</p>
+              <strong>{error ? "Could not load real listings" : "No listings found"}</strong>
+              <p>
+                {error
+                  ? `Connect the backend and try again. (${error})`
+                  : "Run a scrape from the Scraper view to collect listings."}
+              </p>
             </div>
           )}
-          {filtered.map((j) => {
+          {visibleJobs.map((j) => {
             const score = skillScore(j);
             const open = !!expanded[j.id];
             return (
@@ -342,6 +378,41 @@ export default function OverviewView({
             );
           })}
         </div>
+        {filtered.length > pageSize && (
+          <nav className="pagination" aria-label="Job listings pages">
+            <label className="pagination-size">
+              Entries per page
+              <select
+                className="input pagination-select"
+                value={pageSize}
+                onChange={(event) => setPageSize(Number(event.target.value))}
+              >
+                {PAGE_SIZE_OPTIONS.map((option) => (
+                  <option key={option} value={option}>{option}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              className="btn btn-secondary pagination-btn"
+              type="button"
+              onClick={() => setPage((value) => Math.max(1, value - 1))}
+              disabled={currentPage === 1}
+            >
+              Previous
+            </button>
+            <span className="pagination-status" aria-live="polite">
+              Page {currentPage} of {pageCount}
+            </span>
+            <button
+              className="btn btn-secondary pagination-btn"
+              type="button"
+              onClick={() => setPage((value) => Math.min(pageCount, value + 1))}
+              disabled={currentPage === pageCount}
+            >
+              Next
+            </button>
+          </nav>
+        )}
       </article>
     </section>
   );
