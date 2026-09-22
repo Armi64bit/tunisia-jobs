@@ -2,6 +2,25 @@
 
 An end-to-end data pipeline that scrapes job postings from major Tunisian portals, stores them in PostgreSQL, extracts skills via NLP, generates AI-powered market summaries using a local LLaMA3 model, and exports clean datasets for Power BI dashboards.
 
+## Original Project and Credit
+
+This platform started as a fork of [Chiraz Kitar's Tunisia Jobs project](https://github.com/chirazkitar/tunisia-jobs). The original repository provided the scraping pipeline, PostgreSQL data model, market analysis, AI summaries, and Power BI-ready exports. Credit for that foundation belongs to Chiraz Kitar.
+
+## Fork Contributions
+
+The fork is maintained and extended by **Bahaa Eddine Bouzid** ([Armi64bit](https://github.com/Armi64bit)). The added work includes:
+
+- A Next.js and TypeScript dashboard with overview, scraper, and CV-matches views.
+- A FastAPI backend for jobs, sources, pipeline control, health checks, exports, and live progress logs.
+- CV upload and CV-driven LinkedIn searches based on extracted roles and skills.
+- CV-to-job matching with technical skill extraction, pre-ranking, OpenRouter analysis, match scores, covered skills, missing skills, and recommendations.
+- Scrape-run history with one selectable snapshot per pipeline execution, including linked jobs, completion time, and job counts.
+- Matching against a selected scrape result, defaulting to the newest completed run.
+- Matching support for sparse listings that have titles and metadata but no description.
+- Whole-term skill matching to prevent false positives from substring matches such as the language `R`.
+- Legacy scrape-log migration and compatibility handling for existing database records.
+- Pipeline error handling, dynamic progress tracking, CV handoff logging, and frontend/backend validation fixes.
+
 
 ## Results
 
