@@ -6,7 +6,7 @@ import logging
 import re
 import requests
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 from collections import Counter
 from dotenv import load_dotenv
 from database.db_manager import DBManager
@@ -18,6 +18,54 @@ OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 
 logger = logging.getLogger("cv_job_matcher")
+
+JUNIOR_ROLE_TERMS = (
+    "software engineer", "software developer", "software development",
+    "full stack", "fullstack", "front end", "frontend", "back end", "backend",
+    "react developer", "java developer", "python developer", "developer",
+    "développeur", "developpeur", "engineer", "ingénieur logiciel",
+    "graduate", "junior", "entry level", "new grad", "associate",
+)
+SENIORITY_EXCLUSIONS = (
+    "senior", "sr.", "staff", "principal", "lead", "architect",
+    "manager", "director", "head of", "chief", "responsable",
+)
+EXCLUDED_LOCATIONS = (
+    "morocco", "maroc", "algeria", "algérie", "egypt", "égypte",
+    "uae", "united arab emirates", "saudi", "qatar",
+)
+
+
+def job_fit_guard(job: dict) -> tuple[bool, float]:
+    """Apply entry-level, location, and recency rules before AI analysis."""
+    title = (job.get("title") or "").casefold()
+    location = (job.get("location") or "").casefold()
+    experience = (job.get("experience") or "").casefold()
+
+    if any(term in title for term in SENIORITY_EXCLUSIONS):
+        return False, 0.0
+    if any(country in location for country in EXCLUDED_LOCATIONS):
+        return False, 0.0
+    if re.search(r"(?:[3-9]|\d{2,})\+?\s*(?:years?|ans)", experience):
+        if not any(term in title for term in ("junior", "graduate", "entry", "new grad")):
+            return False, 0.0
+
+    role_bonus = 4.0 if any(term in title for term in JUNIOR_ROLE_TERMS) else 0.0
+    recency_bonus = 0.0
+    raw_date = job.get("posted_at")
+    if raw_date:
+        try:
+            if isinstance(raw_date, datetime):
+                posted = raw_date.date()
+            elif isinstance(raw_date, date):
+                posted = raw_date
+            else:
+                posted = datetime.fromisoformat(str(raw_date).replace("Z", "+00:00")).date()
+            age_days = max(0, (date.today() - posted).days)
+            recency_bonus = max(0.0, 6.0 - min(age_days, 30) * 0.2)
+        except (TypeError, ValueError):
+            pass
+    return True, role_bonus + recency_bonus
 
 
 def term_in_text(term: str, text: str) -> bool:
@@ -189,7 +237,11 @@ def get_jobs_for_cv_matching(db: DBManager, cv_keywords: list, cv_skills: dict,
         'informaticien', 'informatique', 'software', 'developpeur',
         'programmeur', 'web', 'data', 'system', 'système',
     ]
+    seen_jobs = set()
     for job in jobs:
+        allowed, fit_bonus = job_fit_guard(job)
+        if not allowed:
+            continue
         score = calculate_job_match_score(job, cv_skills, cv_keywords)
         title = job.get('title', '') or ''
         text = f"{title} {job.get('description', '') or ''}"
@@ -199,7 +251,14 @@ def get_jobs_for_cv_matching(db: DBManager, cv_keywords: list, cv_skills: dict,
             continue
         if score < 8:
             continue
-        job['pre_match_score'] = score
+        identity = (
+            job.get("source_url")
+            or f"{job.get('title', '').casefold()}|{job.get('company_name', '').casefold()}"
+        )
+        if identity in seen_jobs:
+            continue
+        seen_jobs.add(identity)
+        job['pre_match_score'] = score + fit_bonus
         scored_jobs.append(job)
     
     # Sort by score descending
