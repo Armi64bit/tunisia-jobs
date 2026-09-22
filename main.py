@@ -9,6 +9,7 @@ from scrapers.keejob import KeeJobScraper
 from scrapers.linkedin        import LinkedInScraper
 from scrapers.emploitunisie      import EmploiTunisieScraper
 from scrapers.rekrute         import ReKruteScraper
+from scrapers.apify_jobs      import ApifyJobScraper
 from analysis.skills_analysis import run_skills_analysis
 from analysis.salary_analysis import run_salary_analysis
 from analysis.trends          import run_trends_analysis
@@ -47,8 +48,9 @@ def full_pipeline(cv_path=None, skip_scraping=False, run_cv_matching=False,
         run_status = 'success'
         run_error = None
         try:
-            for scraper in [KeeJobScraper(), EmploiTunisieScraper(),
-                            ReKruteScraper(), LinkedInScraper()]:
+            for scraper in [ApifyJobScraper(), KeeJobScraper(),
+                            EmploiTunisieScraper(), ReKruteScraper(),
+                            LinkedInScraper()]:
                 scraper.scrape_run_id = pipeline_run_id
                 try:
                     if isinstance(scraper, LinkedInScraper):

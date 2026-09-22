@@ -34,7 +34,7 @@ app.add_middleware(
         "http://localhost:3002",
         "http://127.0.0.1:3002",
     ],
-    allow_origin_regex=r"http://192\.168\.\d+\.\d+:\d+",
+    allow_origin_regex=r"http://(?:localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):\d+",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -142,7 +142,7 @@ def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool =
             log("No CV supplied; using the general search catalogue")
         
         # Initialize steps
-        scrapers = ["keejob", "emploitunisie", "rekrute", "linkedin"]
+        scrapers = ["apify", "keejob", "emploitunisie", "rekrute", "linkedin"]
         if skip_scraping:
             scrapers = []
         
