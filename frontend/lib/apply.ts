@@ -13,6 +13,8 @@ const BOARD_SEARCH: Record<SourceId, (q: string) => string> = {
   emploitunisie: () => "https://www.emploitunisie.com/recherche-jobs-tunisie",
   linkedin: (q) =>
     `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(q)}&location=Tunisia&geoId=103384667`,
+  apify: (q) =>
+    `https://www.google.com/search?q=${encodeURIComponent(`${q} jobs Tunisia`)}`,
 };
 
 export function resolveApply(job: Job): ApplyLink {

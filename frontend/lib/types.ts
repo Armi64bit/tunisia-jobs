@@ -1,4 +1,4 @@
-export type SourceId = "keejob" | "rekrute" | "emploitunisie" | "linkedin";
+export type SourceId = "keejob" | "rekrute" | "emploitunisie" | "linkedin" | "apify";
 
 export interface Source {
   id: SourceId;
@@ -33,6 +33,7 @@ export interface MatchedJob {
   score: number;
   matched: string[];
   missing: string[];
+  coverLetter?: string;
 }
 
 export interface AppliedJob extends MatchedJob {
@@ -49,7 +50,7 @@ export interface RunStep {
   found: number;
 }
 
-export type RunState = "idle" | "running" | "done" | "error";
+export type RunState = "idle" | "running" | "done" | "error" | "stopped";
 
 export type LogKind = "act" | "ok" | "err" | "";
 
@@ -92,6 +93,7 @@ export interface PipelineStatus {
   completed_at: string | null;
   error: string | null;
   cv_path: string | null;
+  stopped: boolean;
 }
 
 export interface ScrapeRun {

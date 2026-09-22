@@ -87,6 +87,7 @@ class DBManager:
             WHERE table_schema = 'public' AND table_name = 'cv_job_matches'
         """)
         if not match_table.empty:
+            self.execute("ALTER TABLE cv_job_matches ADD COLUMN IF NOT EXISTS cover_letter TEXT")
             self.execute("""
                 UPDATE job_applications a
                 SET match_id = m.id
@@ -110,6 +111,7 @@ class DBManager:
                    c.name AS company_name,
                    COALESCE(m.match_score, 0) AS match_score,
                    COALESCE(m.summary, '') AS summary,
+                   COALESCE(m.cover_letter, '') AS cover_letter,
                    COALESCE(m.missing_skills, ARRAY[]::TEXT[]) AS missing_skills,
                    COALESCE(m.cv_keywords, ARRAY[]::TEXT[]) AS cv_keywords
             FROM job_applications a
@@ -137,6 +139,16 @@ class DBManager:
 
     def remove_application(self, job_id: int):
         self.execute("DELETE FROM job_applications WHERE job_id = :job_id", {"job_id": job_id})
+
+    def save_cover_letter(self, job_id: int, cover_letter: str):
+        self.execute("""
+            ALTER TABLE cv_job_matches ADD COLUMN IF NOT EXISTS cover_letter TEXT
+        """)
+        self.execute("""
+            UPDATE cv_job_matches
+            SET cover_letter = :cover_letter
+            WHERE job_id = :job_id
+        """, {"job_id": job_id, "cover_letter": cover_letter})
 
     def _backfill_scrape_runs(self):
         """Convert legacy per-source logs into selectable pipeline snapshots once."""
@@ -467,6 +479,31 @@ class DBManager:
             """,
             {"limit": limit},
         )
+
+    def delete_scrape_run(self, run_id: int) -> bool:
+        with self.engine.begin() as conn:
+            exists = conn.execute(
+                text("SELECT 1 FROM scrape_runs WHERE id = :run_id"),
+                {"run_id": run_id},
+            ).first()
+            if exists is None:
+                return False
+            conn.execute(text("""
+                UPDATE job_applications
+                SET match_id = NULL
+                WHERE match_id IN (
+                    SELECT id FROM cv_job_matches WHERE scrape_run_id = :run_id
+                )
+            """), {"run_id": run_id})
+            conn.execute(
+                text("DELETE FROM cv_job_matches WHERE scrape_run_id = :run_id"),
+                {"run_id": run_id},
+            )
+            conn.execute(
+                text("DELETE FROM scrape_runs WHERE id = :run_id"),
+                {"run_id": run_id},
+            )
+            return True
 
     # ── Analysis reads (used by analysis/ modules) ─────────────────────────────
 

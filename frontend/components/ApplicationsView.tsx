@@ -152,6 +152,24 @@ export default function ApplicationsView({
                   <span className="match-detail-title">Why this is a strong match</span>
                   <div className="match-why">{whyGoodMatch(application)}</div>
                 </div>
+                {application.coverLetter && (
+                  <div className="od-stack" style={{ "--od-gap": "8px" } as React.CSSProperties}>
+                    <div className="od-row" style={{ "--od-gap": "12px" } as React.CSSProperties}>
+                      <span className="match-detail-title">Cover letter</span>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          navigator.clipboard.writeText(application.coverLetter || "");
+                        }}
+                      >
+                        Copy letter
+                      </button>
+                    </div>
+                    <pre className="cover-letter">{application.coverLetter}</pre>
+                  </div>
+                )}
                 <div className="od-row application-actions" style={{ "--od-gap": "12px" } as React.CSSProperties}>
                   <button className="btn btn-primary btn-sm" type="button" onClick={(event) => {
                     event.stopPropagation();

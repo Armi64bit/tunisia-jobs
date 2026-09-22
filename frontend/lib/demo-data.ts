@@ -5,6 +5,7 @@ export const SOURCES: Source[] = [
   { id: "rekrute", name: "Rekrute" },
   { id: "emploitunisie", name: "Emploi Tunisie" },
   { id: "linkedin", name: "LinkedIn" },
+  { id: "apify", name: "Apify" },
 ];
 
 export const SAMPLE_CV_SKILLS = [

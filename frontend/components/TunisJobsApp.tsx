@@ -222,6 +222,7 @@ export default function TunisJobsApp() {
           score: job.match_score || 0,
           matched: job.cv_keywords || [],
           missing: job.missing_skills || [],
+          coverLetter: job.cover_letter || "",
         }));
         setMatches(matchedJobs);
       }
@@ -289,6 +290,7 @@ export default function TunisJobsApp() {
         score: application.match_score ?? 0,
         matched: application.cv_keywords ?? [],
         missing: application.missing_skills ?? [],
+          coverLetter: application.cover_letter ?? "",
         appliedAt: application.applied_at,
         replied: Boolean(application.replied),
       })) : []);
@@ -338,7 +340,17 @@ export default function TunisJobsApp() {
       if (response.ok) {
         const status: PipelineStatus = await response.json();
         
-        setRunState(status.running ? "running" : (status.error ? "error" : status.completed_at ? "done" : "idle"));
+        setRunState(
+          status.running
+            ? "running"
+            : status.stopped
+              ? "stopped"
+              : status.error
+                ? "error"
+                : status.completed_at
+                  ? "done"
+                  : "idle",
+        );
         setSteps(convertPipelineSteps(status.steps));
         setProgress({ pct: status.progress, label: status.label });
         setPipelineSub(status.label);
@@ -346,6 +358,8 @@ export default function TunisJobsApp() {
         
         if (status.running) {
           statusPollRef.current = window.setTimeout(pollPipelineStatus, 1000);
+        } else if (status.stopped) {
+          showToast("Pipeline stopped", "ok");
         } else if (status.completed_at && !status.error) {
           showToast("Pipeline completed successfully!", "ok");
           loadJobs();
@@ -408,10 +422,56 @@ export default function TunisJobsApp() {
     runPipeline(cvFile, true, true);
   }, [cvFile, selectedScrapeRunId, runState, runPipeline]);
 
+  const stopPipeline = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/pipeline/stop`, { method: "POST" });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        showToast(result.message || "No pipeline is running", "err");
+        return;
+      }
+      showToast("Stopping pipeline...", "ok");
+      pollPipelineStatus();
+    } catch {
+      showToast("Could not stop the pipeline", "err");
+    }
+  }, [pollPipelineStatus, showToast]);
+
   const selectScrapeRun = useCallback((runId: number) => {
     setSelectedScrapeRunId(runId);
     loadCVMatches(runId);
   }, [loadCVMatches]);
+
+  const deleteScrapeRun = useCallback(async (runId: number) => {
+    if (!window.confirm("Delete this scrape run? Its snapshot will be removed.")) return;
+    try {
+      const response = await fetch(`${API_BASE}/scrape-runs/${runId}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Delete failed");
+      await loadScrapeRuns();
+      await loadCVMatches();
+      showToast("Scrape run deleted", "ok");
+    } catch {
+      showToast("Could not delete scrape run", "err");
+    }
+  }, [loadCVMatches, loadScrapeRuns, showToast]);
+
+  const generateCoverLetter = useCallback(async (match: MatchedJob): Promise<string | null> => {
+    const formData = new FormData();
+    formData.append("job_id", String(match.job.id));
+    if (match.matchId !== undefined) formData.append("match_id", String(match.matchId));
+    if (cvFile) formData.append("cv_file", cvFile);
+    try {
+      const response = await fetch(`${API_BASE}/cover-letters`, { method: "POST", body: formData });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.detail || "Generation failed");
+      await loadApplications();
+      showToast("Cover letter generated", "ok");
+      return result.cover_letter;
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "Could not generate cover letter", "err");
+      return null;
+    }
+  }, [cvFile, loadApplications, showToast]);
 
   const matchDisabled = !cv || runState === "running";
   const appBusy = loadingJobs || loadingMatches;
@@ -568,6 +628,8 @@ export default function TunisJobsApp() {
               onApplyCv={applyCv}
               onRemoveCv={removeCv}
               onRun={runPipeline}
+              onStop={stopPipeline}
+              onDeleteScrapeRun={deleteScrapeRun}
               onMatch={matchCv}
               matchDisabled={matchDisabled}
               onDownloadJobs={() => downloadExport("jobs")}
@@ -583,6 +645,7 @@ export default function TunisJobsApp() {
               onApply={handleApply}
               appliedIds={new Set(applications.map((application) => application.job.id))}
               onToggleApplied={toggleApplied}
+              onGenerateCoverLetter={generateCoverLetter}
               onDownloadMatches={() => downloadExport("cv-matches")}
               scrapeRuns={scrapeRuns}
               selectedScrapeRunId={selectedScrapeRunId}

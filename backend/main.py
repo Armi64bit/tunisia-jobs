@@ -4,9 +4,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import asyncio
 import json
 import logging
+import signal
 import subprocess
 import threading
 import time
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -62,7 +64,10 @@ pipeline_state = {
     "completed_at": None,
     "error": None,
     "cv_path": None,
+    "stopped": False,
 }
+pipeline_process = None
+pipeline_stop_requested = False
 
 
 class JobResponse(BaseModel):
@@ -96,6 +101,7 @@ class PipelineStatus(BaseModel):
     started_at: Optional[str]
     completed_at: Optional[str]
     error: Optional[str]
+    stopped: bool
 
 
 class CVUploadResponse(BaseModel):
@@ -117,7 +123,7 @@ class ApplicationUpdate(BaseModel):
 def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool = False,
                             match_cv: bool = False, scrape_run_id: Optional[int] = None):
     """Run the main pipeline in a background thread."""
-    global pipeline_state
+    global pipeline_state, pipeline_process, pipeline_stop_requested
     
     pipeline_state.update({
         "running": True,
@@ -129,7 +135,9 @@ def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool =
         "completed_at": None,
         "error": None,
         "cv_path": cv_path,
+        "stopped": False,
     })
+    pipeline_stop_requested = False
     
     def log(msg: str, kind: str = "act"):
         pipeline_state["logs"].append({
@@ -190,6 +198,7 @@ def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool =
             })
         
         # Run the pipeline
+        creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
         process = subprocess.Popen(
             cmd,
             cwd=os.path.join(os.path.dirname(__file__), '..'),
@@ -197,8 +206,10 @@ def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool =
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            universal_newlines=True
+            universal_newlines=True,
+            creationflags=creation_flags,
         )
+        pipeline_process = process
         
         current_step_idx = 0
         step_map = {
@@ -260,6 +271,11 @@ def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool =
         process.wait()
         
         if process.returncode != 0:
+            if pipeline_stop_requested:
+                pipeline_state["stopped"] = True
+                pipeline_state["label"] = "Stopped"
+                log("Pipeline stopped by user", "ok")
+                return
             raise Exception(f"Pipeline exited with code {process.returncode}")
         
         # Mark all steps as done
@@ -276,6 +292,7 @@ def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool =
         pipeline_state["completed_at"] = datetime.now().isoformat()
         log(f"Pipeline failed: {e}", "err")
     finally:
+        pipeline_process = None
         pipeline_state["running"] = False
 
 
@@ -335,7 +352,7 @@ def get_cv_matches_from_db(limit: int = 50, scrape_run_id: Optional[int] = None)
                    j.source, j.source_url, j.posted_at, j.scraped_at,
                    c.name AS company_name,
                    m.match_score, m.summary, m.why_good_match, m.missing_skills,
-                   m.recommendation, m.cv_keywords, m.cv_skills, m.created_at AS match_date
+                   m.recommendation, m.cover_letter, m.cv_keywords, m.cv_skills, m.created_at AS match_date
             FROM cv_job_matches m
             JOIN jobs j ON j.id = m.job_id
             LEFT JOIN companies c ON c.id = j.company_id
@@ -380,6 +397,7 @@ def get_cv_matches_from_db(limit: int = 50, scrape_run_id: Optional[int] = None)
                 "why_good_match": str(row.get("why_good_match", "")),
                 "missing_skills": missing_skills,
                 "recommendation": str(row.get("recommendation", "")),
+                "cover_letter": str(row.get("cover_letter", "") or ""),
                 "cv_keywords": cv_keywords,
                 "cv_skills": cv_skills,
                 "match_date": str(row.get("match_date", "")),
@@ -455,6 +473,7 @@ def application_response(row) -> Dict[str, Any]:
         "scraped_at": str(row["scraped_at"] or ""),
         "description": str(row["description"] or row["summary"] or ""),
         "match_score": int(row["match_score"] or 0),
+        "cover_letter": str(row["cover_letter"] or ""),
         "missing_skills": row["missing_skills"] or [],
         "cv_keywords": row["cv_keywords"] or [],
     }
@@ -509,6 +528,16 @@ async def delete_application(job_id: int):
     return {"success": True}
 
 
+@app.delete("/scrape-runs/{run_id}")
+async def delete_scrape_run(run_id: int):
+    from database.db_manager import DBManager
+
+    db = DBManager()
+    if not db.delete_scrape_run(run_id):
+        raise HTTPException(status_code=404, detail="Scrape run not found")
+    return {"success": True, "run_id": run_id}
+
+
 @app.get("/pipeline/status", response_model=PipelineStatus)
 async def get_pipeline_status():
     return PipelineStatus(**pipeline_state)
@@ -553,8 +582,91 @@ async def run_pipeline(
 
 @app.post("/pipeline/stop")
 async def stop_pipeline():
-    # Note: This would require process management to actually stop
-    return {"success": False, "message": "Stop not implemented yet"}
+    global pipeline_stop_requested
+
+    if not pipeline_state["running"] or pipeline_process is None:
+        return {"success": False, "message": "No pipeline is running"}
+
+    pipeline_stop_requested = True
+    pipeline_state["label"] = "Stopping..."
+    process = pipeline_process
+    try:
+        if os.name == "nt":
+            process.send_signal(signal.CTRL_BREAK_EVENT)
+        else:
+            process.send_signal(signal.SIGINT)
+    except (OSError, ValueError):
+        process.terminate()
+
+    return {"success": True, "message": "Pipeline stop requested"}
+
+
+@app.post("/cover-letters")
+async def create_cover_letter(
+    job_id: int = Form(...),
+    match_id: Optional[int] = Form(None),
+    cv_file: Optional[UploadFile] = File(None),
+):
+    from ai.cover_letter import generate_cover_letter
+    from cv_matching import extract_cv_text
+    from database.db_manager import DBManager
+
+    cv_path = pipeline_state.get("cv_path")
+    temporary_cv = False
+    if cv_file and cv_file.filename:
+        if not cv_file.filename.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail="Only PDF files allowed")
+        upload_dir = Path(os.path.join(os.path.dirname(__file__), "..", "uploads"))
+        upload_dir.mkdir(exist_ok=True)
+        cv_path = str(upload_dir / f"cover-{uuid.uuid4().hex}.pdf")
+        with open(cv_path, "wb") as output:
+            output.write(await cv_file.read())
+        temporary_cv = True
+
+    if not cv_path:
+        raise HTTPException(status_code=400, detail="Upload the CV used for matching first")
+
+    db = DBManager()
+    job_rows = db.fetch("""
+        SELECT j.id, j.title, j.location, j.contract, j.description,
+               COALESCE(c.name, '') AS company_name,
+               COALESCE(m.cv_keywords, ARRAY[]::TEXT[]) AS cv_keywords,
+               COALESCE(m.missing_skills, ARRAY[]::TEXT[]) AS missing_skills
+        FROM jobs j
+        LEFT JOIN companies c ON c.id = j.company_id
+        LEFT JOIN cv_job_matches m ON m.job_id = j.id
+        WHERE j.id = :job_id
+    """, {"job_id": job_id})
+    if job_rows.empty:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    row = job_rows.iloc[0]
+    try:
+        letter = generate_cover_letter(
+            extract_cv_text(cv_path),
+            {
+                "title": str(row["title"] or ""),
+                "company": str(row["company_name"] or ""),
+                "location": str(row["location"] or ""),
+                "contract": str(row["contract"] or ""),
+                "description": str(row["description"] or ""),
+            },
+            {
+                "cv_keywords": row["cv_keywords"] or [],
+                "missing_skills": row["missing_skills"] or [],
+            },
+        )
+        db.save_cover_letter(job_id, letter)
+        return {"success": True, "cover_letter": letter, "job_id": job_id, "match_id": match_id}
+    except Exception as exc:
+        logger.exception("Failed to generate cover letter")
+        raise HTTPException(status_code=502, detail=str(exc))
+    finally:
+        if temporary_cv:
+            try:
+                Path(cv_path).unlink(missing_ok=True)
+            except OSError:
+                logger.warning("Could not remove temporary CV file %s", cv_path)
 
 
 @app.get("/export/cv-matches")

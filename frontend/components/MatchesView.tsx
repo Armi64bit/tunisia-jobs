@@ -31,6 +31,7 @@ interface MatchesViewProps {
   onApply: (job: Job) => void;
   appliedIds: Set<number>;
   onToggleApplied: (match: MatchedJob) => void;
+  onGenerateCoverLetter: (match: MatchedJob) => Promise<string | null>;
   onDownloadMatches: () => void;
   scrapeRuns: ScrapeRun[];
   selectedScrapeRunId: number | null;
@@ -46,12 +47,15 @@ export default function MatchesView({
   onApply,
   appliedIds,
   onToggleApplied,
+  onGenerateCoverLetter,
   onDownloadMatches,
   scrapeRuns,
   selectedScrapeRunId,
   onSelectScrapeRun,
 }: MatchesViewProps) {
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [coverLetters, setCoverLetters] = useState<Record<number, string>>({});
+  const [coverLetterLoading, setCoverLetterLoading] = useState<number | null>(null);
 
   const top = matches[0]?.score ?? 0;
   const strong = matches.filter((m) => m.score >= 60).length;
@@ -140,6 +144,7 @@ export default function MatchesView({
         {matches.map((m, i) => {
           const open = !!expanded[m.job.id];
           const applied = appliedIds.has(m.job.id);
+          const coverLetter = coverLetters[m.job.id] ?? m.coverLetter ?? "";
           return (
             <article
               className={`match-card${open ? " open" : ""}`}
@@ -237,6 +242,32 @@ export default function MatchesView({
                 </div>
                 <div className="od-row" style={{ "--od-gap": "12px" } as React.CSSProperties}>
                   <button
+                    className="btn btn-secondary btn-sm"
+                    type="button"
+                    disabled={coverLetterLoading === m.job.id}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setCoverLetterLoading(m.job.id);
+                      const generated = await onGenerateCoverLetter(m);
+                      if (generated) setCoverLetters((current) => ({ ...current, [m.job.id]: generated }));
+                      setCoverLetterLoading(null);
+                    }}
+                  >
+                    {coverLetterLoading === m.job.id ? "Generating..." : coverLetter ? "Regenerate cover letter" : "Generate cover letter"}
+                  </button>
+                  {coverLetter && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigator.clipboard.writeText(coverLetter);
+                      }}
+                    >
+                      Copy letter
+                    </button>
+                  )}
+                  <button
                     className="btn btn-primary btn-sm match-apply"
                     type="button"
                     onClick={(e) => {
@@ -247,6 +278,7 @@ export default function MatchesView({
                     Apply on {sourceName(m.job.source)}
                   </button>
                 </div>
+                {coverLetter && <pre className="cover-letter">{coverLetter}</pre>}
               </div>
             </article>
           );

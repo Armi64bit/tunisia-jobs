@@ -386,6 +386,7 @@ select.input option { background: var(--surface-2); color: var(--fg); }
 .btn-ghost:hover { color: var(--fg); border-color: var(--border); }
 .btn-danger { background: var(--danger-soft); color: var(--danger); border-color: transparent; }
 .btn-sm { min-height: 36px; padding: 0 var(--space-4); font-size: var(--text-xs); }
+.cover-letter { margin: 0; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--bg); color: var(--fg-2); font: inherit; font-size: var(--text-sm); line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* ---------- Scraper view ---------- */
 .scraper-grid { display: grid; gap: var(--space-4); grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }

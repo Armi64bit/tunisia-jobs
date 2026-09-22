@@ -392,6 +392,7 @@ def save_cv_match(db: DBManager, job_id: int, match_result: dict,
             why_good_match  TEXT,
             missing_skills  TEXT[],
             recommendation  VARCHAR(20),
+            cover_letter    TEXT,
             tokens_used     INT,
             scrape_run_id   INT REFERENCES scrape_runs(id),
             created_at      TIMESTAMP DEFAULT NOW(),
@@ -407,6 +408,10 @@ def save_cv_match(db: DBManager, job_id: int, match_result: dict,
     db.execute("""
         ALTER TABLE cv_job_matches
         ADD COLUMN IF NOT EXISTS scrape_run_id INT REFERENCES scrape_runs(id)
+    """)
+    db.execute("""
+        ALTER TABLE cv_job_matches
+        ADD COLUMN IF NOT EXISTS cover_letter TEXT
     """)
     db.execute(
         """

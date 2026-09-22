@@ -33,6 +33,8 @@ interface ScraperViewProps {
   onApplyCv: (file: File) => void;
   onRemoveCv: () => void;
   onRun: (cvFile: File | null, skipScraping: boolean, matchCv: boolean) => void;
+  onStop: () => void;
+  onDeleteScrapeRun: (runId: number) => void;
   onMatch: () => void;
   matchDisabled: boolean;
   onDownloadJobs: () => void;
@@ -62,6 +64,8 @@ export default function ScraperView({
   onApplyCv,
   onRemoveCv,
   onRun,
+  onStop,
+  onDeleteScrapeRun,
   onMatch,
   matchDisabled,
   onDownloadJobs,
@@ -203,21 +207,31 @@ export default function ScraperView({
 
             <label className="od-field" style={{ "--od-gap": "8px" } as React.CSSProperties}>
               <span className="od-nowrap">Scrape result</span>
-              <select
-                value={selectedScrapeRunId ?? ""}
-                onChange={(e) => onSelectScrapeRun(Number(e.target.value))}
-                disabled={running || scrapeRuns.length === 0}
-              >
-                {scrapeRuns.length === 0 ? (
-                  <option value="">No completed scrapes</option>
-                ) : (
-                  scrapeRuns.map((run) => (
-                    <option value={run.id} key={run.id}>
-                      {run.source} · {run.completed_at ? new Date(run.completed_at).toLocaleString() : "in progress"} · {run.jobs_found} found
-                    </option>
-                  ))
-                )}
-              </select>
+              <div className="od-row" style={{ "--od-gap": "8px" } as React.CSSProperties}>
+                <select
+                  value={selectedScrapeRunId ?? ""}
+                  onChange={(e) => onSelectScrapeRun(Number(e.target.value))}
+                  disabled={running || scrapeRuns.length === 0}
+                >
+                  {scrapeRuns.length === 0 ? (
+                    <option value="">No completed scrapes</option>
+                  ) : (
+                    scrapeRuns.map((run) => (
+                      <option value={run.id} key={run.id}>
+                        {run.source} · {run.completed_at ? new Date(run.completed_at).toLocaleString() : "in progress"} · {run.jobs_found} found
+                      </option>
+                    ))
+                  )}
+                </select>
+                <button
+                  className="btn btn-danger btn-sm"
+                  type="button"
+                  disabled={running || selectedScrapeRunId === null}
+                  onClick={() => selectedScrapeRunId !== null && onDeleteScrapeRun(selectedScrapeRunId)}
+                >
+                  Delete run
+                </button>
+              </div>
             </label>
 
             <div className="od-stack" style={{ "--od-gap": "8px" } as React.CSSProperties}>
@@ -260,6 +274,12 @@ export default function ScraperView({
                 <PlayIcon />
                 {runState === "done" || runState === "error" ? "Run again" : "Start scrape"}
               </button>
+              {running && (
+                <button className="btn btn-danger" id="btn-stop" onClick={onStop}>
+                  <XIcon />
+                  Stop scrape
+                </button>
+              )}
               <button
                 className="btn btn-secondary"
                 id="btn-download-jobs"
