@@ -194,7 +194,7 @@ Open **[http://localhost:3000](http://localhost:3000)**. The dashboard provides:
 
 - **Overview:** job totals, source breakdowns, employers, and a filterable listing view.
 - **Scraper run:** PDF CV upload, drag and drop, pipeline controls, live progress, logs, scrape-run selection, and job export.
-- **CV matches:** ranked jobs, match scores, covered and missing skills, match explanations, generated cover letters, applications, and match CSV export.
+- **CV matches:** ranked jobs, match scores, covered and missing skills, match explanations, generated cover letters, applications, and match CSV export. Expanded cards stack their actions on mobile and keep long details and letters readable within the viewport.
 - **Applications:** saved applications, reply tracking, and application status management.
 
 ## Run the pipeline from the command line

@@ -10,7 +10,9 @@ self-contained prototype in the repository root `index.html`.
   progress, and a run log.
 - **CV matches** — jobs ranked against your CV's skill coverage with score bars
   and covered/missing skill chips. Click any match to expand offer and company
-  details, a plain-language match rationale, and an apply action.
+  details, a plain-language match rationale, and an apply action. On mobile,
+  expanded actions stack at full width, long details wrap safely, and generated
+  letters stay within a scrollable preview.
 
 ## Run it
 
