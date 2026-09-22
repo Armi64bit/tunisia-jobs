@@ -101,7 +101,10 @@ class LinkedInScraper(BaseScraper):
         driver   = make_driver()
         all_jobs = []
         seen_urls = set()
-        search_keywords = keywords or KEYWORDS
+        # Only use the broad catalogue when no CV profile was supplied.
+        search_keywords = KEYWORDS if keywords is None else keywords
+        if not search_keywords:
+            raise ValueError('No LinkedIn search terms were extracted from the CV.')
 
         try:
             for kw in tqdm(search_keywords, desc='LinkedIn searches', unit='keyword'):

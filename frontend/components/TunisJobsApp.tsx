@@ -31,6 +31,27 @@ function sourceName(id: SourceId): string {
   return SOURCES.find((s) => s.id === id)?.name ?? id;
 }
 
+function normalizeJob(job: any): Job {
+  return {
+    id: job.id,
+    title: job.title ?? "",
+    company: job.company ?? "",
+    source: job.source,
+    city: job.city ?? job.location ?? "",
+    contract: job.contract ?? "",
+    date: job.date ?? job.posted_at ?? "",
+    salary: job.salary ?? "",
+    skills: Array.isArray(job.skills)
+      ? job.skills
+      : Array.isArray(job.cv_keywords)
+        ? job.cv_keywords
+        : [],
+    desc: job.desc ?? job.description ?? job.summary ?? "",
+    applyUrl: job.applyUrl ?? job.source_url,
+    source_url: job.source_url,
+  };
+}
+
 function computeMatches(jobs: Job[]): MatchedJob[] {
   return jobs
     .map((job) => {
@@ -75,6 +96,7 @@ export default function TunisJobsApp() {
   const [view, setView] = useState<ViewId>("overview");
 
   const [cv, setCv] = useState<CvInfo | null>(null);
+  const [cvFile, setCvFile] = useState<File | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
 
   const [runState, setRunState] = useState<RunState>("idle");
@@ -113,6 +135,7 @@ export default function TunisJobsApp() {
       }
       setCvError(null);
       setCv({ name: file.name, size: file.size, sample: false });
+      setCvFile(file);
       showToast(`CV loaded: ${file.name}`);
     },
     [showToast],
@@ -120,6 +143,7 @@ export default function TunisJobsApp() {
 
   const removeCv = useCallback(() => {
     setCv(null);
+    setCvFile(null);
     setCvError(null);
   }, []);
 
@@ -131,7 +155,7 @@ export default function TunisJobsApp() {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/jobs?limit=200`);
       if (response.ok) {
         const data = await response.json();
-        setJobs(data);
+        setJobs(Array.isArray(data) ? data.map(normalizeJob) : JOBS);
       } else {
         setJobs(JOBS);
       }
@@ -342,6 +366,7 @@ export default function TunisJobsApp() {
               pipelineSub={pipelineSub}
               logLines={logLines}
               cv={cv}
+              cvFile={cvFile}
               cvError={cvError}
               onApplyCv={applyCv}
               onRemoveCv={removeCv}

@@ -24,6 +24,7 @@ interface ScraperViewProps {
   pipelineSub: string;
   logLines: LogLine[];
   cv: CvInfo | null;
+  cvFile: File | null;
   cvError: string | null;
   onApplyCv: (file: File) => void;
   onRemoveCv: () => void;
@@ -48,6 +49,7 @@ export default function ScraperView({
   pipelineSub,
   logLines,
   cv,
+  cvFile,
   cvError,
   onApplyCv,
   onRemoveCv,
@@ -59,7 +61,6 @@ export default function ScraperView({
   const inputRef = useRef<HTMLInputElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState(false);
-  const [cvFile, setCvFile] = useState<File | null>(null);
   const [skipScraping, setSkipScraping] = useState(false);
   const [matchCv, setMatchCv] = useState(false);
   const running = runState === "running";
@@ -125,7 +126,6 @@ export default function ScraperView({
                 setDrag(false);
                 if (e.dataTransfer.files && e.dataTransfer.files[0]) {
                   const f = e.dataTransfer.files[0];
-                  setCvFile(f);
                   onApplyCv(f);
                 }
               }}
@@ -142,7 +142,6 @@ export default function ScraperView({
               onChange={(e) => {
                 const f = e.target.files && e.target.files[0];
                 if (f) {
-                  setCvFile(f);
                   onApplyCv(f);
                 }
                 e.target.value = "";
@@ -161,7 +160,6 @@ export default function ScraperView({
                   type="button"
                   aria-label="Remove CV"
                   onClick={() => {
-                    setCvFile(null);
                     onRemoveCv();
                   }}
                 >
