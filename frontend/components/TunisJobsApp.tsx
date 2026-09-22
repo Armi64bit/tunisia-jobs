@@ -24,6 +24,7 @@ import type {
   RunStep,
   Source,
   SourceId,
+  SchedulerSettings,
   ViewId,
   ScrapeRun,
 } from "../lib/types";
@@ -132,6 +133,7 @@ export default function TunisJobsApp() {
   const [loadingMatches, setLoadingMatches] = useState(false);
   const [scrapeRuns, setScrapeRuns] = useState<ScrapeRun[]>([]);
   const [selectedScrapeRunId, setSelectedScrapeRunId] = useState<number | null>(null);
+  const [scheduler, setScheduler] = useState<SchedulerSettings>({ enabled: false, time: "07:00" });
 
   const [toast, setToast] = useState<{ message: string; kind: "ok" | "err" } | null>(null);
   const toastRef = useRef<number | null>(null);
@@ -326,13 +328,40 @@ export default function TunisJobsApp() {
     }
   }, []);
 
+  const loadScheduler = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/scheduler`);
+      if (response.ok) setScheduler(await response.json());
+    } catch (error) {
+      console.error("Failed to load scheduler settings:", error);
+    }
+  }, []);
+
+  const saveScheduler = useCallback(async (settings: SchedulerSettings) => {
+    try {
+      const response = await fetch(`${API_BASE}/scheduler`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(settings),
+      });
+      if (!response.ok) throw new Error("Could not save scheduler");
+      setScheduler(await response.json());
+      showToast(settings.enabled ? `Daily scrape scheduled for ${settings.time}` : "Daily scraper disabled");
+      return true;
+    } catch {
+      showToast("Could not save scheduler settings", "err");
+      return false;
+    }
+  }, [showToast]);
+
   useEffect(() => {
     loadJobs();
     loadCVMatches();
     loadApplications();
     loadScrapeRuns();
     loadBackendState();
-  }, [loadJobs, loadCVMatches, loadApplications, loadScrapeRuns, loadBackendState]);
+    loadScheduler();
+  }, [loadJobs, loadCVMatches, loadApplications, loadScrapeRuns, loadBackendState, loadScheduler]);
 
   const pollPipelineStatus = useCallback(async () => {
     try {
@@ -607,6 +636,8 @@ export default function TunisJobsApp() {
               sources={SOURCES as Source[]}
               cvLoaded={!!cv}
               onGoScraper={() => switchView("scraper")}
+              scheduler={scheduler}
+              onSaveScheduler={saveScheduler}
               loading={loadingJobs}
             />
           )}

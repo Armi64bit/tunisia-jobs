@@ -4,12 +4,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 import asyncio
 import json
 import logging
+import smtplib
 import signal
 import subprocess
 import threading
 import time
 import uuid
 from datetime import datetime
+from email.message import EmailMessage
+from html import escape
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -68,6 +71,10 @@ pipeline_state = {
 }
 pipeline_process = None
 pipeline_stop_requested = False
+scheduler_thread = None
+scheduler_stop_event = threading.Event()
+scheduler_lock = threading.Lock()
+scheduler_config_path = Path(os.path.join(os.path.dirname(__file__), '..', 'scheduler.json'))
 
 
 class JobResponse(BaseModel):
@@ -118,6 +125,159 @@ class ApplicationCreate(BaseModel):
 
 class ApplicationUpdate(BaseModel):
     replied: bool
+
+
+class SchedulerSettings(BaseModel):
+    enabled: bool = False
+    time: str = "07:00"
+
+
+def load_scheduler_settings() -> Dict[str, Any]:
+    settings = {"enabled": False, "time": os.getenv("SCRAPE_TIME", "07:00"), "last_run_date": None}
+    try:
+        if scheduler_config_path.exists():
+            with scheduler_config_path.open("r", encoding="utf-8") as file:
+                saved = json.load(file)
+            settings.update({key: saved[key] for key in ("enabled", "time", "last_run_date") if key in saved})
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Could not load scheduler settings: %s", exc)
+    return settings
+
+
+scheduler_settings = load_scheduler_settings()
+
+
+def save_scheduler_settings() -> None:
+    temporary_path = scheduler_config_path.with_suffix(".tmp")
+    with temporary_path.open("w", encoding="utf-8") as file:
+        json.dump(scheduler_settings, file, indent=2)
+    temporary_path.replace(scheduler_config_path)
+
+
+def send_scheduler_email(
+    jobs_new: int,
+    matches: List[Dict[str, Any]],
+    completed_at: datetime,
+) -> None:
+    recipient = os.getenv("SCHEDULER_EMAIL_TO", "").strip()
+    smtp_host = os.getenv("SMTP_HOST", "").strip()
+    smtp_user = os.getenv("SMTP_USER", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "")
+    if not recipient or not smtp_host:
+        logger.warning("Scheduled run completed but email is not configured")
+        return
+
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    sender = os.getenv("SMTP_FROM", smtp_user or recipient).strip()
+    message = EmailMessage()
+    matches_found = len(matches)
+    message["Subject"] = f"TunisJobs: {matches_found} best CV match(es) today"
+    message["From"] = sender
+    message["To"] = recipient
+    message.set_content(
+        "Your daily TunisJobs run completed.\n\n"
+        f"New listings: {jobs_new}\n"
+        f"Best CV matches: {matches_found}\n"
+        f"Completed: {completed_at.strftime('%Y-%m-%d %H:%M')}\n\n"
+        "Open TunisJobs to review and apply."
+    )
+    cards = []
+    for match in matches[:10]:
+        title = escape(str(match.get("title", "Untitled role")))
+        company = escape(str(match.get("company", "Company not listed")))
+        location = escape(str(match.get("location", "Location not listed")))
+        score = int(match.get("match_score") or 0)
+        source_url = str(match.get("source_url") or "")
+        apply_link = ""
+        if source_url.startswith(("http://", "https://")):
+            apply_link = (
+                f'<a href="{escape(source_url, quote=True)}" '
+                'style="display:inline-block;padding:10px 16px;background:#b5122f;'
+                'color:#fff5f6;text-decoration:none;font-weight:700;border-radius:4px;">'
+                "View &amp; apply</a>"
+            )
+        cards.append(
+            '<tr><td style="padding:20px;border-bottom:1px solid #302025;">'
+            f'<div style="font-size:18px;font-weight:700;color:#f5f1f2;">{title}</div>'
+            f'<div style="margin-top:6px;color:#d0c6c9;">{company} - {location}</div>'
+            f'<div style="margin-top:12px;color:#ef3151;font-weight:700;">{score}% CV match</div>'
+            f'<div style="margin-top:14px;">{apply_link}</div>'
+            "</td></tr>"
+        )
+    matches_html = "".join(cards) or (
+        '<tr><td style="padding:24px;color:#d0c6c9;">'
+        "No CV matches were generated today. Open TunisJobs to review new listings."
+        "</td></tr>"
+    )
+    html_body = f"""<!doctype html>
+<html><body style="margin:0;background:#070708;color:#f5f1f2;font-family:Arial,sans-serif;">
+    <div style="max-width:680px;margin:0 auto;padding:28px 18px;">
+        <div style="border-bottom:1px solid #302025;padding-bottom:20px;">
+            <div style="color:#ef3151;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;">TunisJobs</div>
+            <h1 style="margin:10px 0 6px;font-size:28px;color:#f5f1f2;">Your daily matches</h1>
+            <p style="margin:0;color:#95868b;">The strongest roles found for your CV today.</p>
+        </div>
+    <div style="padding:20px 0;color:#d0c6c9;">{matches_found} CV matches - {jobs_new} new listings</div>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#111113;border:1px solid #302025;border-radius:8px;overflow:hidden;">
+            {matches_html}
+        </table>
+        <p style="margin:22px 0 0;color:#95868b;font-size:13px;">Open TunisJobs to review all listings and track your applications.</p>
+    </div>
+</body></html>"""
+    message.add_alternative(html_body, subtype="html")
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as smtp:
+        smtp.starttls()
+        if smtp_user:
+            smtp.login(smtp_user, smtp_password)
+        smtp.send_message(message)
+
+
+def run_scheduled_pipeline() -> None:
+    with scheduler_lock:
+        if pipeline_state["running"]:
+            logger.warning("Skipping scheduled run because a pipeline is already running")
+            return
+        cv_path = pipeline_state.get("cv_path")
+        configured_cv = os.getenv("SCHEDULER_CV_PATH", "").strip()
+        if configured_cv:
+            cv_path = configured_cv
+        match_cv = bool(cv_path and Path(cv_path).is_file())
+        run_pipeline_background(cv_path if match_cv else None, False, match_cv, None)
+
+    try:
+        from database.db_manager import DBManager
+        latest = DBManager().get_scrape_runs(1)
+        jobs_new = int(latest.iloc[0]["jobs_new"] or 0) if not latest.empty else 0
+        matches = get_cv_matches_from_db(100, int(latest.iloc[0]["id"])) if not latest.empty and match_cv else []
+        send_scheduler_email(jobs_new, matches, datetime.now())
+    except Exception:
+        logger.exception("Scheduled run completed, but its email summary failed")
+
+
+def scheduler_loop() -> None:
+    while not scheduler_stop_event.wait(30):
+        now = datetime.now()
+        with scheduler_lock:
+            due = scheduler_settings["enabled"] and now.strftime("%H:%M") >= scheduler_settings["time"]
+            already_ran = scheduler_settings.get("last_run_date") == now.date().isoformat()
+            if due and not already_ran:
+                scheduler_settings["last_run_date"] = now.date().isoformat()
+                save_scheduler_settings()
+        if due and not already_ran:
+            threading.Thread(target=run_scheduled_pipeline, daemon=True).start()
+
+
+@app.on_event("startup")
+async def start_scheduler() -> None:
+    global scheduler_thread
+    scheduler_stop_event.clear()
+    scheduler_thread = threading.Thread(target=scheduler_loop, daemon=True, name="tunisjobs-scheduler")
+    scheduler_thread.start()
+
+
+@app.on_event("shutdown")
+async def stop_scheduler() -> None:
+    scheduler_stop_event.set()
 
 
 def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool = False,
@@ -411,6 +571,26 @@ def get_cv_matches_from_db(limit: int = 50, scrape_run_id: Optional[int] = None)
 @app.get("/health")
 async def health():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+
+@app.get("/scheduler", response_model=SchedulerSettings)
+async def get_scheduler():
+    return SchedulerSettings(enabled=scheduler_settings["enabled"], time=scheduler_settings["time"])
+
+
+@app.put("/scheduler", response_model=SchedulerSettings)
+async def update_scheduler(settings: SchedulerSettings):
+    try:
+        parsed_time = datetime.strptime(settings.time, "%H:%M").strftime("%H:%M")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="time must use HH:MM format") from exc
+    with scheduler_lock:
+        scheduler_settings["enabled"] = settings.enabled
+        scheduler_settings["time"] = parsed_time
+        if not settings.enabled:
+            scheduler_settings["last_run_date"] = None
+        save_scheduler_settings()
+    return SchedulerSettings(enabled=settings.enabled, time=parsed_time)
 
 
 @app.get("/jobs", response_model=List[JobResponse])

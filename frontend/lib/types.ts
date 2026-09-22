@@ -68,6 +68,11 @@ export interface BackendState {
   label: string;
 }
 
+export interface SchedulerSettings {
+  enabled: boolean;
+  time: string;
+}
+
 // Backend pipeline types
 export interface PipelineStep {
   id: string;

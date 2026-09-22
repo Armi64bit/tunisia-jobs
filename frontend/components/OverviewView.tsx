@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { SOURCES, SAMPLE_CV_SKILLS } from "../lib/demo-data";
 import { skillScore } from "../lib/api";
-import type { AppliedJob, Job, MatchedJob, Source } from "../lib/types";
-import { BoltIcon, SearchIcon } from "./icons";
+import type { AppliedJob, Job, MatchedJob, SchedulerSettings, Source } from "../lib/types";
+import { BoltIcon, CheckIcon, SearchIcon, XIcon } from "./icons";
 
 interface OverviewViewProps {
   jobs: Job[];
@@ -11,6 +11,8 @@ interface OverviewViewProps {
   sources: Source[];
   cvLoaded: boolean;
   onGoScraper: () => void;
+  scheduler: SchedulerSettings;
+  onSaveScheduler: (settings: SchedulerSettings) => Promise<boolean>;
   error?: string | null;
   loading?: boolean;
 }
@@ -51,6 +53,8 @@ export default function OverviewView({
   sources,
   cvLoaded,
   onGoScraper,
+  scheduler,
+  onSaveScheduler,
   error = null,
   loading = false,
 }: OverviewViewProps) {
@@ -61,6 +65,9 @@ export default function OverviewView({
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE_OPTIONS[0]);
+  const [schedulerOpen, setSchedulerOpen] = useState(false);
+  const [schedulerDraft, setSchedulerDraft] = useState(scheduler);
+  const [savingScheduler, setSavingScheduler] = useState(false);
 
   const agg = useMemo(() => aggregate(jobs), [jobs]);
 
@@ -127,6 +134,10 @@ export default function OverviewView({
   );
 
   useEffect(() => {
+    setSchedulerDraft(scheduler);
+  }, [scheduler]);
+
+  useEffect(() => {
     setPage(1);
   }, [jobs, q, src, city, contract, pageSize]);
 
@@ -152,11 +163,76 @@ export default function OverviewView({
             with skill and company intelligence.
           </p>
         </div>
-        <button className="btn btn-primary" onClick={onGoScraper}>
-          <BoltIcon />
-          Run a scrape
-        </button>
+        <div className="od-cluster page-actions">
+          <button className="btn btn-primary" onClick={onGoScraper}>
+            <BoltIcon />
+            Run a scrape
+          </button>
+          <button className="btn btn-secondary" onClick={() => setSchedulerOpen(true)}>
+            Scheduler
+          </button>
+        </div>
       </div>
+
+      {schedulerOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={() => setSchedulerOpen(false)}>
+          <section
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="scheduler-title"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="modal-head">
+              <div>
+                <p className="eyebrow">Automation</p>
+                <h2 className="panel-title" id="scheduler-title">Daily scraper</h2>
+              </div>
+              <button className="icon-btn" aria-label="Close scheduler" onClick={() => setSchedulerOpen(false)}>
+                <XIcon />
+              </button>
+            </div>
+            <p className="modal-copy">
+              Run the scraper once a day and receive an email summary when it finishes.
+              The notification address and SMTP credentials stay in the backend .env file.
+            </p>
+            <label className="scheduler-toggle">
+              <input
+                type="checkbox"
+                checked={schedulerDraft.enabled}
+                onChange={(event) => setSchedulerDraft({ ...schedulerDraft, enabled: event.target.checked })}
+              />
+              <span>Enable daily run</span>
+            </label>
+            <label className="field scheduler-time">
+              <span className="field-label">Run time</span>
+              <input
+                className="text-input"
+                type="time"
+                value={schedulerDraft.time}
+                onChange={(event) => setSchedulerDraft({ ...schedulerDraft, time: event.target.value })}
+              />
+              <span className="field-hint">Uses the backend machine's local time.</span>
+            </label>
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setSchedulerOpen(false)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                disabled={savingScheduler}
+                onClick={async () => {
+                  setSavingScheduler(true);
+                  const saved = await onSaveScheduler(schedulerDraft);
+                  setSavingScheduler(false);
+                  if (saved) setSchedulerOpen(false);
+                }}
+              >
+                <CheckIcon />
+                {savingScheduler ? "Saving..." : "Save schedule"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
 
       <div className="stat-grid">
         <div className="stat-card">
