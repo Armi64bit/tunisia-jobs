@@ -2,7 +2,6 @@
 
 An end-to-end data pipeline that scrapes job postings from major Tunisian portals, stores them in PostgreSQL, extracts skills via NLP, generates AI-powered market summaries using a local LLaMA3 model, and exports clean datasets for Power BI dashboards.
 
----
 
 ## Results
 
@@ -14,7 +13,6 @@ An end-to-end data pipeline that scrapes job postings from major Tunisian portal
 | CSVs exported | 10 files |
 | AI summaries | Daily (LLaMA3) |
 
----
 
 ## Architecture
 
@@ -32,7 +30,6 @@ CSV Export (data/export_data.py)
 Power BI Dashboard
 ```
 
----
 
 ## Project Structure
 
@@ -64,7 +61,6 @@ tunisia-jobs/
 └── .env.example
 ```
 
----
 
 ## Tech Stack
 
@@ -78,14 +74,13 @@ tunisia-jobs/
 | Export | pandas CSV |
 | Visualization | Power BI |
 
----
 
 ## Quick Start
 
 ### 1. Clone & install
 
 ```bash
-git clone https://github.com/your-username/tunisia-jobs.git
+git clone https://github.com/armi64bit/tunisia-jobs.git
 cd tunisia-jobs
 python -m venv .venv
 .venv\Scripts\activate        # Windows
@@ -137,7 +132,6 @@ python main.py --once --skip-scraping
 Supported CV formats are `.pdf`, `.txt`, and `.md`. Without `--cv`, the
 default broad LinkedIn keyword list is used.
 
----
 
 ## Exported CSVs
 
@@ -151,7 +145,6 @@ default broad LinkedIn keyword list is used.
 | `top_companies.csv` | Top 50 hiring companies | Bar chart |
 | `ai_summary.csv` | Latest LLaMA3 market summary | Text card |
 
----
 
 ## Daily Automation
 
@@ -163,7 +156,6 @@ python main.py --once
 python main.py
 ```
 
----
 
 ## Utility Scripts
 
@@ -175,7 +167,6 @@ python update_descriptions.py
 python recount_skills.py
 ```
 
----
 
 ## Sources
 
@@ -186,7 +177,6 @@ python recount_skills.py
 | [ReKrute.com](https://www.rekrute.com) | requests | ~5 |
 | [LinkedIn](https://www.linkedin.com/jobs) | Selenium (40 keywords) | ~260 |
 
----
 
 ## Database Schema
 
@@ -200,26 +190,14 @@ salaries      -- Extracted salary ranges (TND)
 scrape_logs   -- Scraping audit log
 ```
 
----
 
 ## Key Findings (June 2026)
 
-- **Top skill**: Communication (12.9% of job postings)
-- **Top tech skill**: Cloud / DevOps (2.8%)
-- **Most active source**: EmploiTunisie (375 jobs/run)
-- **Most in-demand languages**: French + English (bilingual market)
-- **Contract type**: CDI dominates, followed by SIVP for graduates
 
----
 
 ## Notes
 
-- LinkedIn scraping uses public job listings only (no login required)
-- AI summaries use OpenRouter and require an API key
-- ReKrute yields fewer results due to server-side rate limiting
-- Run `update_descriptions.py` after each pipeline run to backfill descriptions for new jobs
 
----
 
 ## Author
 
