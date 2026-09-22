@@ -1,223 +1,329 @@
-# 🇹🇳 Tunisia Job Market Intelligence Platform
+<div align="center">
 
-An end-to-end data pipeline that scrapes job postings from major Tunisian portals, stores them in PostgreSQL, extracts skills via NLP, generates AI-powered market summaries using a local LLaMA3 model, and exports clean datasets for Power BI dashboards.
+# 🇹🇳 Tunisia Job Market Intelligence
 
-## Original Project and Credit
+**Collect. Understand. Match. Apply.**
 
-This platform started as a fork of [Chiraz Kitar's Tunisia Jobs project](https://github.com/chirazkitar/tunisia-jobs). The original repository provided the scraping pipeline, PostgreSQL data model, market analysis, AI summaries, and Power BI-ready exports. Credit for that foundation belongs to Chiraz Kitar.
+An end-to-end platform for collecting and analysing Tunisian job listings, with a live dashboard, CV matching, AI assistance, and Power BI-ready exports.
 
-## Fork Contributions
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Next.js](https://img.shields.io/badge/Frontend-Next.js-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
+[![PostgreSQL](https://img.shields.io/badge/Database-PostgreSQL-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-6E56CF)](https://openrouter.ai/)
 
-The fork is maintained and extended by **Bahaa Eddine Bouzid** ([Armi64bit](https://github.com/Armi64bit)). The added work includes:
+</div>
 
-- A Next.js and TypeScript dashboard with overview, scraper, and CV-matches views.
-- A FastAPI backend for jobs, sources, pipeline control, health checks, exports, and live progress logs.
-- CV upload and CV-driven LinkedIn searches based on extracted roles and skills.
-- CV-to-job matching with technical skill extraction, pre-ranking, OpenRouter analysis, match scores, covered skills, missing skills, and recommendations.
-- Scrape-run history with one selectable snapshot per pipeline execution, including linked jobs, completion time, and job counts.
-- Matching against a selected scrape result, defaulting to the newest completed run.
-- Matching support for sparse listings that have titles and metadata but no description.
-- Whole-term skill matching to prevent false positives from substring matches such as the language `R`.
-- Legacy scrape-log migration and compatibility handling for existing database records.
-- Pipeline error handling, dynamic progress tracking, CV handoff logging, and frontend/backend validation fixes.
+## Contents
 
+| | | |
+|---|---|---|
+| [Highlights](#highlights) | [Architecture](#architecture) | [Installation](#installation) |
+| [Run the app](#run-the-application) | [Pipeline commands](#run-the-pipeline-from-the-command-line) | [API](#api-endpoints) |
+| [Exports](#generated-exports) | [Testing](#testing-and-frontend-checks) | [Database](#database-model) |
 
-## Results
+## Highlights
 
-| Metric | Value |
+| Capability | What it provides |
 |---|---|
-| Total jobs collected | 1,200+ |
-| Sources scraped | 4 portals |
-| Skills tracked | 75+ |
-| CSVs exported | 10 files |
-| AI summaries | Daily (LLaMA3) |
+| **Job collection** | Scraping from Apify, KeeJob, EmploiTunisie, ReKrute, and LinkedIn |
+| **Market intelligence** | Skill, salary, and monthly trend analysis with Power BI-ready CSVs |
+| **CV matching** | Skill extraction, ranked matches, covered and missing skills, and recommendations |
+| **AI assistance** | Market summaries, match analysis, and generated cover letters through OpenRouter |
+| **Pipeline control** | Background runs, live progress, logs, stop requests, and scrape-run history |
+| **Candidate workflow** | Applications, reply tracking, scrape snapshot selection, and export downloads |
 
+<details>
+<summary><strong>Project background</strong></summary>
+
+This project began as a fork of [Chiraz Kitar's Tunisia Jobs project](https://github.com/chirazkitar/tunisia-jobs). The original repository provided the initial scraping pipeline, database model, analysis scripts, AI summaries, and Power BI exports.
+
+The current extensions are maintained by **Bahaa Eddine Bouzid** ([Armi64bit](https://github.com/Armi64bit)). They include the FastAPI backend, Next.js dashboard, CV workflow, scrape-run snapshots, application tracking, cover-letter generation, and compatibility handling for legacy data.
+
+</details>
 
 ## Architecture
 
-```
-Scraping (Python + Selenium)
-        ↓
-PostgreSQL Database (7 tables)
-        ↓
-Analysis (NLP + pandas)     →    AI Summary (OpenRouter / LLaMA3)
-        ↓
-Data Cleaning (data/clean_data.py)
-        ↓
-CSV Export (data/export_data.py)
-        ↓
-Power BI Dashboard
+```text
+Job portals / Apify
+        |
+        v
+Python scrapers -> PostgreSQL
+                         |
+                         v
+             NLP + salary + trend analysis
+                         |
+                         +--> OpenRouter market summary
+                         +--> CV matching and cover letters
+                         v
+                  CSV exports / Power BI
+
+Next.js dashboard <-> FastAPI backend <-> PostgreSQL and pipeline
 ```
 
+The Python pipeline owns collection and analysis. The FastAPI layer exposes that workflow to the dashboard, while PostgreSQL remains the source of truth for jobs, matches, scrape snapshots, and applications.
 
-## Project Structure
+## Project structure
 
-```
+<details>
+<summary><strong>Expand project tree</strong></summary>
+
+```text
 tunisia-jobs/
+├── main.py                         # Pipeline entry point and daily scheduler
+├── cv_matching.py                  # CV text and keyword extraction
+├── cv_job_matcher.py               # CV-to-job scoring and AI match analysis
 ├── scrapers/
-│   ├── base_scraper.py        # Shared base class + Selenium factory
-│   ├── keejob.py      # Keejob.com scraper
-│   ├── emploitunisie.py           # EmploiTunisie.com scraper (Selenium)
-│   ├── rekrute.py             # ReKrute.com scraper
-│   └── linkedin.py            # LinkedIn scraper (40 keywords)
-├── database/
-│   ├── schema.sql             # Full PostgreSQL schema (7 tables)
-│   └── db_manager.py          # DB connection + all query helpers
+│   ├── base_scraper.py             # Shared Selenium and scraper helpers
+│   ├── apify_jobs.py               # Apify jobs source
+│   ├── keejob.py                   # KeeJob scraper
+│   ├── emploitunisie.py            # EmploiTunisie scraper
+│   ├── rekrute.py                  # ReKrute scraper
+│   └── linkedin.py                 # LinkedIn scraper
 ├── analysis/
-│   ├── skills_analysis.py     # NLP skill extraction (90+ skills dict)
-│   ├── salary_analysis.py     # Salary range parsing from raw text
-│   └── trends.py              # Monthly demand evolution
-├── data/
-│   ├── clean_data.py          # Title/location/contract normalization
-│   └── export_data.py         # Export 10 Power BI-ready CSVs
+│   ├── skills_analysis.py          # Skill extraction and counts
+│   ├── salary_analysis.py          # Salary range parsing
+│   └── trends.py                   # Monthly demand trends
 ├── ai/
-│   └── summarizer.py          # OpenRouter LLaMA3 market trend summaries
-├── exports/                   # Auto-generated CSVs for Power BI
-├── main.py                    # Pipeline orchestrator + daily scheduler
-├── update_descriptions.py     # Backfill job descriptions from detail pages
-├── recount_skills.py          # Force fresh skills recount
-├── requirements.txt
-└── .env.example
+│   ├── summarizer.py               # AI market summaries
+│   └── cover_letter.py             # AI cover-letter generation
+├── data/
+│   ├── clean_data.py               # Data normalization
+│   └── export_data.py              # Power BI-ready CSV exports
+├── database/
+│   ├── schema.sql                  # PostgreSQL schema
+│   └── db_manager.py               # Database queries and persistence
+├── backend/
+│   └── main.py                     # FastAPI API on port 8001
+├── frontend/
+│   ├── app/                        # Next.js app entry points and styles
+│   ├── components/                 # Dashboard views and UI components
+│   └── lib/                        # API client, types, matching, and demo data
+├── exports/                        # Generated CSV files
+├── uploads/                        # Uploaded CV files used by the backend
+├── requirements.txt                # Pipeline dependencies
+└── frontend/package.json            # Frontend dependencies and scripts
 ```
 
+</details>
 
-## Tech Stack
+## Requirements
 
-| Layer | Technology |
+| Requirement | Purpose |
 |---|---|
-| Scraping | Python, Selenium, BeautifulSoup, Requests |
-| Storage | PostgreSQL, SQLAlchemy |
-| Analysis | pandas, NLTK, scikit-learn |
-| AI | OpenRouter (LLaMA 3 API) |
-| Orchestration | schedule |
-| Export | pandas CSV |
-| Visualization | Power BI |
+| Python 3.11+ | Scrapers, analysis, matching, and backend support |
+| PostgreSQL | Persistent job and workflow data |
+| Node.js and npm | Next.js dashboard |
+| Selenium-compatible browser | Browser-based source scrapers |
+| OpenRouter API key | AI summaries, match analysis, and cover letters |
 
+## Configuration
 
-## Quick Start
+Create a `.env` file in the repository root. Database settings can be supplied as a complete `DATABASE_URL`, or with the individual variables below:
 
-### 1. Clone & install
+```dotenv
+DATABASE_URL=postgresql://postgres:password@localhost:5432/tunisia_jobs
 
-```bash
+# Used when DATABASE_URL is not set
+DB_USER=postgres
+DB_PASSWORD=password
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=tunisia_jobs
+
+OPENROUTER_API_KEY=your_key_here
+OPENROUTER_MODEL=openrouter/free
+EXPORT_DIR=exports
+
+# Optional backend configuration
+BACKEND_CORS_ORIGINS=http://localhost:3000
+BACKEND_CORS_ORIGIN_REGEX=http://(?:localhost|127\.0\.0\.1|192\.168\.\d+\.\d+):\d+
+```
+
+The frontend reads `frontend/.env.local`:
+
+```dotenv
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8001
+```
+
+When the frontend is opened from another machine, set this value to the backend's reachable URL and configure matching backend CORS origins.
+
+## Installation
+
+> [!NOTE]
+> The commands below use PowerShell on Windows. Activate the virtual environment before running Python commands.
+
+```powershell
 git clone https://github.com/armi64bit/tunisia-jobs.git
 cd tunisia-jobs
+
 python -m venv .venv
-.venv\Scripts\activate        # Windows
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-```
 
-### 2. Configure environment
-
-```bash
-cp .env.example .env
-# Fill in DB credentials and OpenRouter settings
-```
-
-### 3. Set up PostgreSQL
-
-```bash
 psql -U postgres -c "CREATE DATABASE tunisia_jobs;"
 psql -U postgres -d tunisia_jobs -f database/schema.sql
+
+cd frontend
+npm install
+cd ..
 ```
 
-### 4. Configure OpenRouter
+## Run the application
 
-Add your OpenRouter API key to `.env` as `OPENROUTER_API_KEY`. The default
-model is `openrouter/free`, which automatically selects an available free
-model. Set `OPENROUTER_MODEL` to another OpenRouter model when needed.
+### 1. Start the API
 
-### 5. Run the pipeline
+Start the API from the repository root:
 
-```bash
+```powershell
+python backend/main.py
+```
+
+The API is available at `http://localhost:8001`. A health check is available at `http://localhost:8001/health`.
+
+### 2. Start the dashboard
+
+In a second terminal, start the dashboard:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Open **[http://localhost:3000](http://localhost:3000)**. The dashboard provides:
+
+- **Overview:** job totals, source breakdowns, employers, and a filterable listing view.
+- **Scraper run:** PDF CV upload, drag and drop, pipeline controls, live progress, logs, scrape-run selection, and job export.
+- **CV matches:** ranked jobs, match scores, covered and missing skills, match explanations, generated cover letters, applications, and match CSV export.
+- **Applications:** saved applications, reply tracking, and application status management.
+
+## Run the pipeline from the command line
+
+Run one complete scrape, analysis, AI summary, and export cycle:
+
+```powershell
 python main.py --once
 ```
 
-This single command runs: **scrape → analyze → AI summary → clean → export**
+Run without scraping and use jobs already in PostgreSQL:
 
-To search LinkedIn using skills and roles found in a CV, provide a PDF or text
-CV. The scraper searches Tunisia jobs using up to ten recognized terms:
-
-```bash
-python main.py --once --cv path\to\cv.pdf
-```
-
-To regenerate the analysis and AI summary from jobs already in PostgreSQL,
-skip scraping:
-
-```bash
+```powershell
 python main.py --once --skip-scraping
 ```
 
-Supported CV formats are `.pdf`, `.txt`, and `.md`. Without `--cv`, the
-default broad LinkedIn keyword list is used.
+Use a CV to provide search terms to LinkedIn:
 
+```powershell
+python main.py --once --cv path\to\cv.pdf
+```
 
-## Exported CSVs
+Run CV matching after the pipeline. The optional scrape-run ID limits matching to a selected completed run:
 
-| File | Description | Power BI Use |
-|---|---|---|
-| `jobs_clean.csv` | All jobs — cleaned titles, locations, contracts | Main table |
-| `skills.csv` | 75+ skills with frequency + category | Bar chart, heatmap |
-| `by_location.csv` | Jobs per Tunisian governorate | Map visual |
-| `by_contract.csv` | CDI / CDD / SIVP / Stage breakdown | Donut chart |
-| `monthly_by_source.csv` | Jobs per source per month | Trend line |
-| `top_companies.csv` | Top 50 hiring companies | Bar chart |
-| `ai_summary.csv` | Latest LLaMA3 market summary | Text card |
+```powershell
+python main.py --once --cv path\to\cv.pdf --match-cv
+python main.py --once --cv path\to\cv.pdf --skip-scraping --match-cv --scrape-run-id 12
+```
 
+Supported CV formats for the command-line pipeline are `.pdf`, `.txt`, and `.md`. The backend upload workflow accepts PDF files up to 10 MB.
 
-## Daily Automation
+To start the daily scheduler instead of a one-time run:
 
-```bash
-# Run once manually
-python main.py --once
-
-# Start daily scheduler (runs every day at 07:00)
+```powershell
 python main.py
 ```
 
+The scheduler runs the pipeline daily at 07:00.
 
-## Utility Scripts
+## API endpoints
 
-```bash
-# Backfill descriptions for jobs scraped without detail pages
+The FastAPI backend exposes:
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /health` | Health check |
+| `GET /jobs` | Browse stored jobs with pagination |
+| `GET /sources` | List supported sources |
+| `GET /scrape-runs` | List successful and partial scrape snapshots |
+| `GET /cv-matches` | List ranked CV matches, optionally by `scrape_run_id` |
+| `GET /applications` | List saved applications |
+| `POST /applications` | Create an application |
+| `PATCH /applications/{job_id}` | Update application reply status |
+| `DELETE /applications/{job_id}` | Remove an application |
+| `DELETE /scrape-runs/{run_id}` | Remove a scrape snapshot and its links |
+| `GET /pipeline/status` | Read progress, steps, logs, and errors |
+| `POST /pipeline/run` | Start a background pipeline with optional CV and matching flags |
+| `POST /pipeline/stop` | Request that the active pipeline stop |
+| `POST /cover-letters` | Generate and save a cover letter for a job |
+| `GET /export/jobs` | Download `jobs_clean.csv` |
+| `GET /export/cv-matches` | Download `cv_matches.csv` |
+
+Interactive API documentation is available at `http://localhost:8001/docs` while the backend is running.
+
+## Generated exports
+
+The pipeline writes CSV files to `exports/`:
+
+| File | Contents |
+|---|---|
+| `jobs_clean.csv` | Normalized job listings |
+| `skills.csv` | Skill frequencies and categories |
+| `by_location.csv` | Jobs by governorate or location |
+| `by_contract.csv` | Contract-type breakdown |
+| `monthly_by_source.csv` | Monthly jobs by source |
+| `monthly_sector.csv` | Monthly jobs by sector |
+| `monthly_total.csv` | Monthly total job volume |
+| `skill_trend.csv` | Skill demand over time |
+| `top_companies.csv` | Most active hiring companies |
+| `ai_summary.csv` | Latest AI-generated market summary |
+| `cv_matches.csv` | CV-to-job matching results |
+
+These files can be imported into Power BI or downloaded through the backend export endpoints where supported.
+
+## Utility scripts
+
+```powershell
+# Backfill descriptions for jobs without detail-page descriptions
 python update_descriptions.py
 
-# Force fresh skills recount (e.g. after DB reset)
+# Recalculate skills after a database reset or skill-dictionary change
 python recount_skills.py
 ```
 
+## Testing and frontend checks
+
+```powershell
+# Backend tests
+pytest backend
+
+# Existing pipeline tests
+pytest test_cv.py test_cv2.py
+
+# Frontend checks
+cd frontend
+npm run typecheck
+npm run build
+```
+
+## Database model
+
+The schema includes the core job entities and the newer workflow tables:
+
+```text
+sectors, companies, jobs, skills, job_skills, salaries
+scrape_logs, scrape_runs, scrape_run_jobs
+job_applications
+```
+
+`cv_job_matches` is used by the CV matching workflow and is managed by the matching/database code alongside the base schema.
 
 ## Sources
 
-| Portal | Method | Jobs/run |
-|---|---|---|
-| [Keejob.com](https://www.keejob.com) | requests + BeautifulSoup | ~300 |
-| [EmploiTunisie.com](https://www.emploitunisie.com) | Selenium | ~375 |
-| [ReKrute.com](https://www.rekrute.com) | requests | ~5 |
-| [LinkedIn](https://www.linkedin.com/jobs) | Selenium (40 keywords) | ~260 |
+| Source | Implementation |
+|---|---|
+| Apify | `scrapers/apify_jobs.py` |
+| KeeJob | `scrapers/keejob.py` |
+| EmploiTunisie | `scrapers/emploitunisie.py` |
+| ReKrute | `scrapers/rekrute.py` |
+| LinkedIn | `scrapers/linkedin.py` |
 
-
-## Database Schema
-
-```sql
-jobs          -- Core job postings
-companies     -- Employer profiles
-sectors       -- Hierarchical sectors
-skills        -- Skill reference table
-job_skills    -- Jobs ↔ Skills (M:M)
-salaries      -- Extracted salary ranges (TND)
-scrape_logs   -- Scraping audit log
-```
-
-
-## Key Findings (June 2026)
-
-
-
-## Notes
-
-
-
-## Author
-
-**Chiraz Kitar** — Data Analysis Project, June 2026
+Scraper availability and result counts depend on the source site, network access, credentials, and the current run.
