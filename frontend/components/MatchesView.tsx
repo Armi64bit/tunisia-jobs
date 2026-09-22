@@ -240,7 +240,7 @@ export default function MatchesView({
                   <span className="match-detail-title">Why this is a strong match</span>
                   <div className="match-why">{whyGoodMatch(m)}</div>
                 </div>
-                <div className="od-row" style={{ "--od-gap": "12px" } as React.CSSProperties}>
+                <div className="od-row match-actions" style={{ "--od-gap": "12px" } as React.CSSProperties}>
                   <button
                     className="btn btn-secondary btn-sm"
                     type="button"
