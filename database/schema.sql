@@ -62,9 +62,27 @@ CREATE TABLE scrape_logs (
     status      VARCHAR(20) DEFAULT 'success',
     error_msg   TEXT
 );
+
+CREATE TABLE scrape_runs (
+    id           SERIAL PRIMARY KEY,
+    source       VARCHAR(40) NOT NULL,
+    started_at   TIMESTAMP DEFAULT NOW(),
+    completed_at TIMESTAMP,
+    jobs_found   INT DEFAULT 0,
+    jobs_new     INT DEFAULT 0,
+    status       VARCHAR(20) DEFAULT 'running',
+    error_msg    TEXT
+);
+
+CREATE TABLE scrape_run_jobs (
+    run_id       INT REFERENCES scrape_runs(id) ON DELETE CASCADE,
+    job_id       INT REFERENCES jobs(id) ON DELETE CASCADE,
+    PRIMARY KEY (run_id, job_id)
+);
  
 -- Useful indexes
 CREATE INDEX idx_jobs_source    ON jobs(source);
 CREATE INDEX idx_jobs_posted_at ON jobs(posted_at);
 CREATE INDEX idx_jobs_sector    ON jobs(sector_id);
 CREATE INDEX idx_job_skills_job ON job_skills(job_id);
+CREATE INDEX idx_scrape_runs_completed_at ON scrape_runs(completed_at);

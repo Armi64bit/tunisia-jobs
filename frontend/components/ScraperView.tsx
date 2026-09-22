@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { fmtKB } from "../lib/format";
-import type { CvInfo, LogLine, RunState, RunStep } from "../lib/types";
+import type { CvInfo, LogLine, RunState, RunStep, ScrapeRun } from "../lib/types";
 import {
   AlertIcon,
   CheckIcon,
@@ -26,6 +26,9 @@ interface ScraperViewProps {
   cv: CvInfo | null;
   cvFile: File | null;
   cvError: string | null;
+  scrapeRuns: ScrapeRun[];
+  selectedScrapeRunId: number | null;
+  onSelectScrapeRun: (runId: number) => void;
   onApplyCv: (file: File) => void;
   onRemoveCv: () => void;
   onRun: (cvFile: File | null, skipScraping: boolean, matchCv: boolean) => void;
@@ -51,6 +54,9 @@ export default function ScraperView({
   cv,
   cvFile,
   cvError,
+  scrapeRuns,
+  selectedScrapeRunId,
+  onSelectScrapeRun,
   onApplyCv,
   onRemoveCv,
   onRun,
@@ -192,6 +198,25 @@ export default function ScraperView({
                 </span>
               </span>
             </div>
+
+            <label className="od-field" style={{ "--od-gap": "8px" } as React.CSSProperties}>
+              <span className="od-nowrap">Scrape result</span>
+              <select
+                value={selectedScrapeRunId ?? ""}
+                onChange={(e) => onSelectScrapeRun(Number(e.target.value))}
+                disabled={running || scrapeRuns.length === 0}
+              >
+                {scrapeRuns.length === 0 ? (
+                  <option value="">No completed scrapes</option>
+                ) : (
+                  scrapeRuns.map((run) => (
+                    <option value={run.id} key={run.id}>
+                      {run.source} · {run.completed_at ? new Date(run.completed_at).toLocaleString() : "in progress"} · {run.jobs_found} found
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
 
             <div className="od-stack" style={{ "--od-gap": "8px" } as React.CSSProperties}>
               <label className="od-field" style={{ "--od-gap": "8px" } as React.CSSProperties}>

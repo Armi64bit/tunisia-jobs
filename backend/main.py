@@ -85,7 +85,8 @@ class CVUploadResponse(BaseModel):
     cv_path: Optional[str] = None
 
 
-def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool = False, match_cv: bool = False):
+def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool = False,
+                            match_cv: bool = False, scrape_run_id: Optional[int] = None):
     """Run the main pipeline in a background thread."""
     global pipeline_state
     
@@ -123,6 +124,8 @@ def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool =
             cmd.append("--skip-scraping")
         if match_cv and cv_path:
             cmd.append("--match-cv")
+        if match_cv and scrape_run_id is not None:
+            cmd.extend(["--scrape-run-id", str(scrape_run_id)])
         
         log(f"Running: {' '.join(cmd)}")
         if cv_path:
@@ -170,8 +173,7 @@ def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool =
         
         current_step_idx = 0
         step_map = {
-            "keejob": 0, "emploitunisie": 1, "rekrute": 2, "linkedin": 3,
-            "skills": 4, "salary": 5, "trends": 6, "ai": 7, "export": 8, "cv_match": 9
+            step["id"]: index for index, step in enumerate(pipeline_state["steps"])
         }
         
         for line in iter(process.stdout.readline, ''):
@@ -279,14 +281,26 @@ def get_jobs_from_db(limit: int = 100, offset: int = 0) -> List[Dict]:
         return []
 
 
-def get_cv_matches_from_db(limit: int = 50) -> List[Dict]:
+def get_cv_matches_from_db(limit: int = 50, scrape_run_id: Optional[int] = None) -> List[Dict]:
     """Fetch CV matches from database."""
     try:
         from database.db_manager import DBManager
         import pandas as pd
         
         db = DBManager()
-        df = db.fetch("""
+        scrape_run_id = scrape_run_id or db.get_latest_scrape_run_id()
+        run_filter = ""
+        params = {"limit": limit}
+        if scrape_run_id is not None:
+            run_filter = """
+                AND EXISTS (
+                    SELECT 1 FROM scrape_run_jobs srj
+                    WHERE srj.run_id = :scrape_run_id AND srj.job_id = j.id
+                )
+            """
+            params["scrape_run_id"] = scrape_run_id
+
+        df = db.fetch(f"""
             SELECT j.id, j.title, j.location, j.contract, j.experience,
                    s.name AS sector_name,
                    j.source, j.source_url, j.posted_at, j.scraped_at,
@@ -297,9 +311,11 @@ def get_cv_matches_from_db(limit: int = 50) -> List[Dict]:
             JOIN jobs j ON j.id = m.job_id
             LEFT JOIN companies c ON c.id = j.company_id
             LEFT JOIN sectors s ON s.id = j.sector_id
+            WHERE 1 = 1
+            {run_filter}
             ORDER BY m.match_score DESC, m.created_at DESC
             LIMIT :limit
-        """, {"limit": limit})
+        """, params)
         
         matches = []
         for _, row in df.iterrows():
@@ -364,9 +380,30 @@ async def get_sources():
     ]
 
 
+@app.get("/scrape-runs")
+async def get_scrape_runs(limit: int = 30):
+    from database.db_manager import DBManager
+
+    db = DBManager()
+    df = db.get_scrape_runs(limit)
+    return [
+        {
+            "id": int(row["id"]),
+            "source": str(row["source"]),
+            "started_at": row["started_at"].isoformat() if row["started_at"] else None,
+            "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
+            "jobs_found": int(row["jobs_found"] or 0),
+            "jobs_new": int(row["jobs_new"] or 0),
+            "status": str(row["status"]),
+        }
+        for _, row in df.iterrows()
+        if str(row["status"]) in {"success", "partial"}
+    ]
+
+
 @app.get("/cv-matches")
-async def get_cv_matches(limit: int = 50):
-    matches = get_cv_matches_from_db(limit)
+async def get_cv_matches(limit: int = 50, scrape_run_id: Optional[int] = None):
+    matches = get_cv_matches_from_db(limit, scrape_run_id)
     return matches
 
 
@@ -381,6 +418,7 @@ async def run_pipeline(
     cv_file: Optional[UploadFile] = File(None),
     skip_scraping: bool = Form(False),
     match_cv: bool = Form(False),
+    scrape_run_id: Optional[int] = Form(None),
 ):
     global pipeline_state
     
@@ -404,7 +442,9 @@ async def run_pipeline(
         logger.info(f"Saved CV to {cv_path}")
     
     # Run pipeline in background
-    background_tasks.add_task(run_pipeline_background, cv_path, skip_scraping, match_cv)
+    background_tasks.add_task(
+        run_pipeline_background, cv_path, skip_scraping, match_cv, scrape_run_id
+    )
     
     return {"success": True, "message": "Pipeline started", "cv_path": cv_path}
 

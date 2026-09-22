@@ -86,3 +86,13 @@ export interface PipelineStatus {
   error: string | null;
   cv_path: string | null;
 }
+
+export interface ScrapeRun {
+  id: number;
+  source: string;
+  started_at: string | null;
+  completed_at: string | null;
+  jobs_found: number;
+  jobs_new: number;
+  status: string;
+}

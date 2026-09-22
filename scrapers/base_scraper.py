@@ -36,6 +36,9 @@ class BaseScraper:
         self.db     = DBManager()
         self.ua     = ua
         self.logger = logging.getLogger(source_name)
+        self.scrape_run_id = None
+        self.last_jobs_found = 0
+        self.last_jobs_new = 0
 
     def random_delay(self, min_s=1.5, max_s=4.0):
         time.sleep(random.uniform(min_s, max_s))
@@ -61,19 +64,40 @@ class BaseScraper:
 
     def save_jobs(self, jobs: list) -> int:
         inserted = 0
-        for job in jobs:
-            for field in ('title', 'company', 'location', 'description',
-                          'contract', 'experience', 'salary_raw'):
-                if field in job and job[field]:
-                    job[field] = self.clean_text(job[field])
-            try:
-                if self.db.insert_job(job):
-                    inserted += 1
-            except UnicodeDecodeError as e:
-                self.logger.warning(f'Encoding error on "{job.get("title","?")}": {e}')
-            except Exception as e:
-                self.logger.warning(f'Skip "{job.get("title","?")}": {e}')
-        self.db.log_run(self.source, len(jobs), inserted)
+        run_id = self.scrape_run_id or self.db.start_scrape_run(self.source)
+        owns_run = self.scrape_run_id is None
+        status = 'success'
+        error_msg = None
+        try:
+            for job in jobs:
+                for field in ('title', 'company', 'location', 'description',
+                              'contract', 'experience', 'salary_raw'):
+                    if field in job and job[field]:
+                        job[field] = self.clean_text(job[field])
+                try:
+                    job_id = self.db.insert_job(job)
+                    if job_id:
+                        self.db.link_job_to_scrape_run(run_id, job_id)
+                        if not self.db.fetch(
+                            "SELECT 1 FROM jobs WHERE id = :job_id AND scraped_at >= "
+                            "(SELECT started_at FROM scrape_runs WHERE id = :run_id)",
+                            {"job_id": job_id, "run_id": run_id},
+                        ).empty:
+                            inserted += 1
+                except UnicodeDecodeError as e:
+                    self.logger.warning(f'Encoding error on "{job.get("title","?")}": {e}')
+                except Exception as e:
+                    self.logger.warning(f'Skip "{job.get("title","?")}": {e}')
+        except Exception as e:
+            status = 'error'
+            error_msg = str(e)
+            raise
+        finally:
+            self.last_jobs_found = len(jobs)
+            self.last_jobs_new = inserted
+            if owns_run:
+                self.db.finish_scrape_run(run_id, len(jobs), inserted, status, error_msg)
+            self.db.log_run(self.source, len(jobs), inserted, status, error_msg)
         return inserted
 
     def run(self):

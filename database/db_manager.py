@@ -33,6 +33,9 @@ class DBManager:
             connect_args={"options": "-c lc_messages=C"},
         )
         self.Session = sessionmaker(bind=self.engine)
+        self._ensure_scrape_run_tables()
+        self._backfill_scrape_runs()
+        self._repair_empty_scrape_runs()
         logger.info("DBManager connected to database.")
 
     # ── Generic helper ─────────────────────────────────────────────────────────
@@ -46,6 +49,105 @@ class DBManager:
         """Execute a SELECT query and return a DataFrame."""
         with self.engine.connect() as conn:
             return pd.read_sql(text(sql), conn, params=params or {})
+
+    def execute_returning(self, sql: str, params: dict = None) -> pd.DataFrame:
+        """Execute a write query that returns rows, committing the transaction."""
+        with self.engine.begin() as conn:
+            result = conn.execute(text(sql), params or {})
+            return pd.DataFrame(result.mappings().all())
+
+    def _ensure_scrape_run_tables(self):
+        self.execute("""
+            CREATE TABLE IF NOT EXISTS scrape_runs (
+                id SERIAL PRIMARY KEY,
+                source VARCHAR(40) NOT NULL,
+                started_at TIMESTAMP DEFAULT NOW(),
+                completed_at TIMESTAMP,
+                jobs_found INT DEFAULT 0,
+                jobs_new INT DEFAULT 0,
+                status VARCHAR(20) DEFAULT 'running',
+                error_msg TEXT
+            )
+        """)
+
+    def _backfill_scrape_runs(self):
+        """Convert legacy per-source logs into selectable pipeline snapshots once."""
+        if not self.fetch("SELECT id FROM scrape_runs LIMIT 1").empty:
+            return
+
+        logs = self.fetch("""
+            SELECT run_at, jobs_found, jobs_new, status, error_msg
+            FROM scrape_logs
+            WHERE status = 'success'
+            ORDER BY run_at
+        """)
+        if logs.empty:
+            return
+
+        groups = []
+        for _, row in logs.iterrows():
+            if not groups or (row["run_at"] - groups[-1][-1]["run_at"]).total_seconds() > 900:
+                groups.append([])
+            groups[-1].append(row)
+
+        for group in groups:
+            started_at = group[0]["run_at"]
+            completed_at = group[-1]["run_at"]
+            jobs_found = sum(int(row["jobs_found"] or 0) for row in group)
+            jobs_new = sum(int(row["jobs_new"] or 0) for row in group)
+            run = self.execute_returning("""
+                INSERT INTO scrape_runs
+                    (source, started_at, completed_at, jobs_found, jobs_new, status)
+                VALUES
+                    ('pipeline', :started_at, :completed_at, :jobs_found, :jobs_new, 'success')
+                RETURNING id
+            """, {
+                "started_at": started_at,
+                "completed_at": completed_at,
+                "jobs_found": jobs_found,
+                "jobs_new": jobs_new,
+            })
+            run_id = int(run.iloc[0]["id"])
+            self.execute("""
+                INSERT INTO scrape_run_jobs (run_id, job_id)
+                SELECT :run_id, id
+                FROM jobs
+                WHERE scraped_at BETWEEN :started_at AND :completed_at
+                ON CONFLICT DO NOTHING
+            """, {
+                "run_id": run_id,
+                "started_at": started_at,
+                "completed_at": completed_at,
+            })
+
+    def _repair_empty_scrape_runs(self):
+        """Link legacy snapshots whose duplicate jobs predate their log entries."""
+        empty_runs = self.fetch("""
+            SELECT r.id, r.completed_at
+            FROM scrape_runs r
+            LEFT JOIN scrape_run_jobs rj ON rj.run_id = r.id
+            WHERE r.status IN ('success', 'partial')
+            GROUP BY r.id, r.completed_at
+            HAVING COUNT(rj.job_id) = 0
+        """)
+        for _, row in empty_runs.iterrows():
+            self.execute("""
+                INSERT INTO scrape_run_jobs (run_id, job_id)
+                SELECT :run_id, id
+                FROM jobs
+                WHERE scraped_at <= :completed_at
+                ON CONFLICT DO NOTHING
+            """, {
+                "run_id": int(row["id"]),
+                "completed_at": row["completed_at"],
+            })
+        self.execute("""
+            CREATE TABLE IF NOT EXISTS scrape_run_jobs (
+                run_id INT REFERENCES scrape_runs(id) ON DELETE CASCADE,
+                job_id INT REFERENCES jobs(id) ON DELETE CASCADE,
+                PRIMARY KEY (run_id, job_id)
+            )
+        """)
 
     # ── Company helpers ────────────────────────────────────────────────────────
 
@@ -91,7 +193,7 @@ class DBManager:
 
     # ── Job insertion ──────────────────────────────────────────────────────────
 
-    def insert_job(self, job: dict) -> bool:
+    def insert_job(self, job: dict) -> int | None:
         """
         Insert a single job posting.
         Returns True if inserted, False if duplicate (same title + company + source).
@@ -115,7 +217,7 @@ class DBManager:
             },
         )
         if not dup.empty:
-            return False  # already exists
+            return int(dup.iloc[0]["id"])
 
         self.execute(
             """
@@ -142,13 +244,23 @@ class DBManager:
 
         # Save raw salary if present
         job_id = self.fetch(
-            "SELECT id FROM jobs WHERE source_url = :url LIMIT 1",
-            {"url": job.get("source_url", "")},
+            """
+            SELECT id FROM jobs
+            WHERE title = :title
+              AND source = :source
+              AND COALESCE(company_id, -1) = COALESCE(:company_id, -1)
+            LIMIT 1
+            """,
+            {
+                "title": job.get("title", "").strip(),
+                "source": job.get("source", ""),
+                "company_id": company_id,
+            },
         )
         if not job_id.empty and job.get("salary_raw"):
             self._save_raw_salary(int(job_id.iloc[0]["id"]), job["salary_raw"])
 
-        return True
+        return int(job_id.iloc[0]["id"]) if not job_id.empty else None
 
     def _save_raw_salary(self, job_id: int, salary_raw: str):
         """Parse and store salary from raw string (called internally)."""
@@ -225,6 +337,67 @@ class DBManager:
                 "status": status,
                 "error":  error_msg,
             },
+        )
+
+    def start_scrape_run(self, source: str) -> int:
+        row = self.execute_returning(
+            """
+            INSERT INTO scrape_runs (source)
+            VALUES (:source)
+            RETURNING id
+            """,
+            {"source": source},
+        )
+        return int(row.iloc[0]["id"])
+
+    def link_job_to_scrape_run(self, run_id: int, job_id: int):
+        self.execute(
+            """
+            INSERT INTO scrape_run_jobs (run_id, job_id)
+            VALUES (:run_id, :job_id)
+            ON CONFLICT DO NOTHING
+            """,
+            {"run_id": run_id, "job_id": job_id},
+        )
+
+    def finish_scrape_run(self, run_id: int, jobs_found: int, jobs_new: int,
+                          status: str = "success", error_msg: str = None):
+        self.execute(
+            """
+            UPDATE scrape_runs
+            SET completed_at = NOW(), jobs_found = :found, jobs_new = :new,
+                status = :status, error_msg = :error
+            WHERE id = :run_id
+            """,
+            {
+                "run_id": run_id,
+                "found": jobs_found,
+                "new": jobs_new,
+                "status": status,
+                "error": error_msg,
+            },
+        )
+
+    def get_latest_scrape_run_id(self) -> int | None:
+        row = self.fetch(
+            """
+            SELECT id FROM scrape_runs
+            WHERE status IN ('success', 'partial')
+            ORDER BY completed_at DESC NULLS LAST, id DESC
+            LIMIT 1
+            """
+        )
+        return int(row.iloc[0]["id"]) if not row.empty else None
+
+    def get_scrape_runs(self, limit: int = 30) -> pd.DataFrame:
+        return self.fetch(
+            """
+            SELECT id, source, started_at, completed_at, jobs_found, jobs_new, status
+            FROM scrape_runs
+            ORDER BY completed_at DESC NULLS LAST, id DESC
+            LIMIT :limit
+            """,
+            {"limit": limit},
         )
 
     # ── Analysis reads (used by analysis/ modules) ─────────────────────────────

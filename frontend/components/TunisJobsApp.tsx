@@ -23,6 +23,7 @@ import type {
   Source,
   SourceId,
   ViewId,
+  ScrapeRun,
 } from "../lib/types";
 
 const PER_SOURCE = [18, 10, 8, 14];
@@ -105,6 +106,8 @@ export default function TunisJobsApp() {
   const [pipelineSub, setPipelineSub] = useState("Ready");
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [matches, setMatches] = useState<MatchedJob[]>([]);
+  const [scrapeRuns, setScrapeRuns] = useState<ScrapeRun[]>([]);
+  const [selectedScrapeRunId, setSelectedScrapeRunId] = useState<number | null>(null);
 
   const [toast, setToast] = useState<{ message: string; kind: "ok" | "err" } | null>(null);
   const toastRef = useRef<number | null>(null);
@@ -150,8 +153,6 @@ export default function TunisJobsApp() {
   const loadJobs = useCallback(async () => {
     setLoadingJobs(true);
     try {
-      const { jobs: fetchedJobs } = await fetch("/api/jobs").then(r => r.json()).catch(() => ({ jobs: JOBS }));
-      // Use local API if available, otherwise demo data
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/jobs?limit=200`);
       if (response.ok) {
         const data = await response.json();
@@ -166,9 +167,10 @@ export default function TunisJobsApp() {
     }
   }, []);
 
-  const loadCVMatches = useCallback(async () => {
+  const loadCVMatches = useCallback(async (scrapeRunId?: number) => {
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/cv-matches?limit=100`);
+      const selected = scrapeRunId ? `&scrape_run_id=${scrapeRunId}` : "";
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/cv-matches?limit=100${selected}`);
       if (response.ok) {
         const data = await response.json();
         // Convert to MatchedJob format
@@ -197,6 +199,20 @@ export default function TunisJobsApp() {
     }
   }, []);
 
+  const loadScrapeRuns = useCallback(async () => {
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/scrape-runs?limit=30`);
+      if (!response.ok) return;
+      const data: ScrapeRun[] = await response.json();
+      setScrapeRuns(data);
+      setSelectedScrapeRunId((current) =>
+        current && data.some((run) => run.id === current) ? current : data[0]?.id ?? null,
+      );
+    } catch (e) {
+      console.error("Failed to load scrape runs:", e);
+    }
+  }, []);
+
   const loadBackendState = useCallback(async () => {
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/health`);
@@ -213,8 +229,9 @@ export default function TunisJobsApp() {
   useEffect(() => {
     loadJobs();
     loadCVMatches();
+    loadScrapeRuns();
     loadBackendState();
-  }, [loadJobs, loadCVMatches, loadBackendState]);
+  }, [loadJobs, loadCVMatches, loadScrapeRuns, loadBackendState]);
 
   const pollPipelineStatus = useCallback(async () => {
     try {
@@ -233,7 +250,8 @@ export default function TunisJobsApp() {
         } else if (status.completed_at && !status.error) {
           showToast("Pipeline completed successfully!", "ok");
           loadJobs();
-          loadCVMatches();
+          loadScrapeRuns();
+          loadCVMatches(selectedScrapeRunId ?? undefined);
         } else if (status.error) {
           showToast(`Pipeline failed: ${status.error}`, "err");
         }
@@ -241,7 +259,7 @@ export default function TunisJobsApp() {
     } catch (e) {
       console.error("Failed to poll pipeline status:", e);
     }
-  }, [showToast, loadJobs, loadCVMatches]);
+  }, [showToast, loadJobs, loadScrapeRuns, loadCVMatches, selectedScrapeRunId]);
 
   const runPipeline = useCallback(
     async (cvFile: File | null, skipScraping: boolean, matchCv: boolean) => {
@@ -257,6 +275,9 @@ export default function TunisJobsApp() {
       if (cvFile) formData.append("cv_file", cvFile);
       formData.append("skip_scraping", String(skipScraping));
       formData.append("match_cv", String(matchCv));
+      if (matchCv && skipScraping && selectedScrapeRunId !== null) {
+        formData.append("scrape_run_id", String(selectedScrapeRunId));
+      }
 
       try {
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001"}/pipeline/run`, {
@@ -278,15 +299,19 @@ export default function TunisJobsApp() {
         showToast("Failed to start pipeline", "err");
       }
     },
-    [runState, showToast, pollPipelineStatus]
+    [runState, selectedScrapeRunId, showToast, pollPipelineStatus]
   );
 
   const matchCv = useCallback(() => {
-    if (!cv) return;
-    loadCVMatches();
-    setView("matches");
-    showToast("Matches loaded", "ok");
-  }, [cv, loadCVMatches, showToast]);
+    if (!cvFile || selectedScrapeRunId === null || runState === "running") return;
+    setView("scraper");
+    runPipeline(cvFile, true, true);
+  }, [cvFile, selectedScrapeRunId, runState, runPipeline]);
+
+  const selectScrapeRun = useCallback((runId: number) => {
+    setSelectedScrapeRunId(runId);
+    loadCVMatches(runId);
+  }, [loadCVMatches]);
 
   const matchDisabled = !cv || runState === "running";
 
@@ -368,6 +393,9 @@ export default function TunisJobsApp() {
               cv={cv}
               cvFile={cvFile}
               cvError={cvError}
+              scrapeRuns={scrapeRuns}
+              selectedScrapeRunId={selectedScrapeRunId}
+              onSelectScrapeRun={selectScrapeRun}
               onApplyCv={applyCv}
               onRemoveCv={removeCv}
               onRun={runPipeline}
