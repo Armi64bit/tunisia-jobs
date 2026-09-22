@@ -111,6 +111,7 @@ export default function TunisJobsApp() {
   const [runState, setRunState] = useState<RunState>("idle");
   const [steps, setSteps] = useState<RunStep[]>([]);
   const [progress, setProgress] = useState({ pct: 0, label: "idle" });
+  const [pipelineStartedAt, setPipelineStartedAt] = useState<number | null>(null);
   const [pipelineSub, setPipelineSub] = useState("Ready");
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [matches, setMatches] = useState<MatchedJob[]>([]);
@@ -279,6 +280,7 @@ export default function TunisJobsApp() {
       if (runState === "running") return;
       
       setRunState("running");
+      setPipelineStartedAt(Date.now());
       setPipelineSub("Starting...");
       setLogLines([]);
       setProgress({ pct: 0, label: "Initializing" });
@@ -327,7 +329,18 @@ export default function TunisJobsApp() {
   }, [loadCVMatches]);
 
   const matchDisabled = !cv || runState === "running";
-  const appBusy = loadingJobs || loadingMatches || runState === "running";
+  const appBusy = loadingJobs || loadingMatches;
+  const elapsedSeconds = pipelineStartedAt
+    ? Math.max(0, (Date.now() - pipelineStartedAt) / 1000)
+    : 0;
+  const remainingSeconds = runState === "running" && progress.pct > 0
+    ? Math.max(0, elapsedSeconds * (100 - progress.pct) / progress.pct)
+    : null;
+  const progressEta = remainingSeconds === null
+    ? "Estimating time remaining..."
+    : remainingSeconds < 60
+      ? `About ${Math.ceil(remainingSeconds)} sec remaining`
+      : `About ${Math.ceil(remainingSeconds / 60)} min remaining`;
 
   const handleApply = useCallback(
     (job: Job) => {
@@ -373,9 +386,8 @@ export default function TunisJobsApp() {
           <div className="loading-card">
             <span className="loading-orbit" aria-hidden="true"><span /></span>
             <span className="loading-label">
-              {runState === "running" ? progress.label : loadingMatches ? "Loading matches" : "Loading jobs"}
+              {loadingMatches ? "Loading matches" : "Loading jobs"}
             </span>
-            {runState === "running" && <span className="loading-progress">{Math.round(progress.pct)}%</span>}
           </div>
         </div>
       )}
@@ -413,6 +425,7 @@ export default function TunisJobsApp() {
               steps={steps}
               progressPct={progress.pct}
               progressLabel={progress.label}
+              progressEta={runState === "running" ? progressEta : undefined}
               pipelineSub={pipelineSub}
               logLines={logLines}
               cv={cv}

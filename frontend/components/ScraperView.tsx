@@ -21,6 +21,7 @@ interface ScraperViewProps {
   steps: RunStep[];
   progressPct: number;
   progressLabel: string;
+  progressEta?: string;
   pipelineSub: string;
   logLines: LogLine[];
   cv: CvInfo | null;
@@ -49,6 +50,7 @@ export default function ScraperView({
   steps,
   progressPct,
   progressLabel,
+  progressEta,
   pipelineSub,
   logLines,
   cv,
@@ -290,12 +292,15 @@ export default function ScraperView({
           </div>
           <div className="progress-wrap">
             <div className="progress-head">
-              <span className="progress-label" id="progress-label">{progressLabel}</span>
+              <span className="progress-label" id="progress-label">
+                {progressLabel}
+                {progressEta && <small className="progress-eta">{progressEta}</small>}
+              </span>
               <span className="progress-pct" id="progress-pct">{Math.round(progressPct)}%</span>
             </div>
             <div className="progress-track">
               <div
-                className="progress-fill"
+                className={`progress-fill${running ? " active" : ""}`}
                 id="progress-fill"
                 role="progressbar"
                 aria-valuemin={0}
