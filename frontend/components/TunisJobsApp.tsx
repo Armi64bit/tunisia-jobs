@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import OverviewView from "./OverviewView";
 import ScraperView from "./ScraperView";
 import MatchesView from "./MatchesView";
+import ApplicationsView from "./ApplicationsView";
 import Sidebar from "./Sidebar";
 import Toast from "./Toast";
 import { JOBS, NEW_JOBS, SAMPLE_CV_NAME, SAMPLE_CV_SKILLS, SOURCES } from "../lib/demo-data";
@@ -11,6 +12,7 @@ import { skillScore } from "../lib/api";
 import { nextLogId, timeNow } from "../lib/format";
 import type {
   BackendState,
+  AppliedJob,
   CvInfo,
   Job,
   LogLine,
@@ -35,6 +37,7 @@ const API_BASE = typeof window !== "undefined" &&
   (!configuredApiBase || configuredApiBase.includes("localhost"))
   ? `${window.location.protocol}//${window.location.hostname}:8001`
   : configuredApiBase ?? "http://localhost:8001";
+const LEGACY_APPLICATIONS_STORAGE_KEY = "tunisjobs-applied-jobs";
 
 function sourceName(id: SourceId): string {
   return SOURCES.find((s) => s.id === id)?.name ?? id;
@@ -115,6 +118,7 @@ export default function TunisJobsApp() {
   const [pipelineSub, setPipelineSub] = useState("Ready");
   const [logLines, setLogLines] = useState<LogLine[]>([]);
   const [matches, setMatches] = useState<MatchedJob[]>([]);
+  const [applications, setApplications] = useState<AppliedJob[]>([]);
   const [loadingMatches, setLoadingMatches] = useState(false);
   const [scrapeRuns, setScrapeRuns] = useState<ScrapeRun[]>([]);
   const [selectedScrapeRunId, setSelectedScrapeRunId] = useState<number | null>(null);
@@ -186,6 +190,7 @@ export default function TunisJobsApp() {
         const data = await response.json();
         // Convert to MatchedJob format
         const matchedJobs: MatchedJob[] = data.map((job: any) => ({
+          matchId: job.match_id,
           job: {
             id: job.id,
             title: job.title,
@@ -210,6 +215,71 @@ export default function TunisJobsApp() {
       console.error("Failed to load CV matches:", e);
     } finally {
       setLoadingMatches(false);
+    }
+  }, []);
+
+  const loadApplications = useCallback(async () => {
+    try {
+      const response = await fetch(`${API_BASE}/applications`);
+      if (!response.ok) return;
+      const data = await response.json();
+      const legacy = window.localStorage.getItem(LEGACY_APPLICATIONS_STORAGE_KEY);
+      if (legacy) {
+        try {
+          const oldApplications = JSON.parse(legacy);
+          const storedIds = new Set((Array.isArray(data) ? data : []).map((item: any) => item.id));
+          if (Array.isArray(oldApplications)) {
+            await Promise.all(oldApplications
+              .filter((item: any) => !storedIds.has(item.job?.id))
+              .map(async (item: any) => {
+                const created = await fetch(`${API_BASE}/applications`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ job_id: item.job?.id, match_id: item.matchId, applied_at: item.appliedAt }),
+                });
+                if (created.ok && item.replied) {
+                  await fetch(`${API_BASE}/applications/${item.job?.id}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ replied: true }),
+                  });
+                }
+              }));
+          }
+          window.localStorage.removeItem(LEGACY_APPLICATIONS_STORAGE_KEY);
+          if (oldApplications?.length) {
+            const migrated = await fetch(`${API_BASE}/applications`);
+            if (migrated.ok) data.splice(0, data.length, ...(await migrated.json()));
+          }
+        } catch (migrationError) {
+          console.error("Failed to migrate legacy applications:", migrationError);
+        }
+      }
+      setApplications(Array.isArray(data) ? data.map((application: any): AppliedJob => ({
+        matchId: application.match_id,
+        job: {
+          id: application.id,
+          title: application.title ?? "",
+          company: application.company ?? "",
+          source: application.source,
+          city: application.location ?? "",
+          contract: application.contract ?? "",
+          date: application.posted_at ?? "",
+          salary: "",
+          skills: application.cv_keywords ?? [],
+          desc: application.description ?? application.summary ?? "",
+          scrapedAt: application.scraped_at,
+          applyUrl: application.source_url,
+          source_url: application.source_url,
+        },
+        score: application.match_score ?? 0,
+        matched: application.cv_keywords ?? [],
+        missing: application.missing_skills ?? [],
+        appliedAt: application.applied_at,
+        replied: Boolean(application.replied),
+      })) : []);
+    } catch (e) {
+      console.error("Failed to load applications:", e);
     }
   }, []);
 
@@ -243,9 +313,10 @@ export default function TunisJobsApp() {
   useEffect(() => {
     loadJobs();
     loadCVMatches();
+    loadApplications();
     loadScrapeRuns();
     loadBackendState();
-  }, [loadJobs, loadCVMatches, loadScrapeRuns, loadBackendState]);
+  }, [loadJobs, loadCVMatches, loadApplications, loadScrapeRuns, loadBackendState]);
 
   const pollPipelineStatus = useCallback(async () => {
     try {
@@ -357,6 +428,49 @@ export default function TunisJobsApp() {
     [showToast],
   );
 
+  const toggleApplied = useCallback(async (match: MatchedJob) => {
+    const existing = applications.some((application) => application.job.id === match.job.id);
+    try {
+      const response = existing
+        ? await fetch(`${API_BASE}/applications/${match.job.id}`, { method: "DELETE" })
+        : await fetch(`${API_BASE}/applications`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ job_id: match.job.id, match_id: match.matchId }),
+          });
+      if (!response.ok) throw new Error("Application request failed");
+      await loadApplications();
+    } catch {
+      showToast("Could not update application tracker", "err");
+    }
+  }, [applications, loadApplications, showToast]);
+
+  const toggleReplied = useCallback(async (jobId: number) => {
+    const application = applications.find((item) => item.job.id === jobId);
+    if (!application) return;
+    try {
+      const response = await fetch(`${API_BASE}/applications/${jobId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ replied: !application.replied }),
+      });
+      if (!response.ok) throw new Error("Reply status request failed");
+      await loadApplications();
+    } catch {
+      showToast("Could not update reply status", "err");
+    }
+  }, [applications, loadApplications, showToast]);
+
+  const removeApplication = useCallback(async (jobId: number) => {
+    try {
+      const response = await fetch(`${API_BASE}/applications/${jobId}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("Application request failed");
+      await loadApplications();
+    } catch {
+      showToast("Could not remove application", "err");
+    }
+  }, [loadApplications, showToast]);
+
   const downloadExport = useCallback(async (type: "cv-matches" | "jobs") => {
     try {
       const response = await fetch(`${API_BASE}/export/${type}`);
@@ -450,10 +564,22 @@ export default function TunisJobsApp() {
               sources={SOURCES as Source[]}
               onGoScraper={() => switchView("scraper")}
               onApply={handleApply}
+              appliedIds={new Set(applications.map((application) => application.job.id))}
+              onToggleApplied={toggleApplied}
               onDownloadMatches={() => downloadExport("cv-matches")}
               scrapeRuns={scrapeRuns}
               selectedScrapeRunId={selectedScrapeRunId}
               onSelectScrapeRun={selectScrapeRun}
+            />
+          )}
+          {view === "applications" && (
+            <ApplicationsView
+              applications={applications}
+              jobs={jobs}
+              sources={SOURCES as Source[]}
+              onApply={handleApply}
+              onRemove={removeApplication}
+              onToggleReplied={toggleReplied}
             />
           )}
         </main>

@@ -79,6 +79,13 @@ CREATE TABLE scrape_run_jobs (
     job_id       INT REFERENCES jobs(id) ON DELETE CASCADE,
     PRIMARY KEY (run_id, job_id)
 );
+
+CREATE TABLE job_applications (
+    job_id      INT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+    match_id    INT,
+    applied_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    replied     BOOLEAN NOT NULL DEFAULT FALSE
+);
  
 -- Useful indexes
 CREATE INDEX idx_jobs_source    ON jobs(source);
@@ -86,3 +93,5 @@ CREATE INDEX idx_jobs_posted_at ON jobs(posted_at);
 CREATE INDEX idx_jobs_sector    ON jobs(sector_id);
 CREATE INDEX idx_job_skills_job ON job_skills(job_id);
 CREATE INDEX idx_scrape_runs_completed_at ON scrape_runs(completed_at);
+CREATE INDEX idx_job_applications_replied ON job_applications(replied);
+CREATE INDEX idx_job_applications_match ON job_applications(match_id);

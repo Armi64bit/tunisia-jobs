@@ -29,9 +29,15 @@ export interface CvInfo {
 
 export interface MatchedJob {
   job: Job;
+  matchId?: number;
   score: number;
   matched: string[];
   missing: string[];
+}
+
+export interface AppliedJob extends MatchedJob {
+  appliedAt: string;
+  replied: boolean;
 }
 
 export type StepStatus = "ready" | "running" | "done" | "error";
@@ -54,7 +60,7 @@ export interface LogLine {
   kind: LogKind;
 }
 
-export type ViewId = "overview" | "scraper" | "matches";
+export type ViewId = "overview" | "scraper" | "matches" | "applications";
 
 export interface BackendState {
   online: boolean;

@@ -29,6 +29,8 @@ interface MatchesViewProps {
   sources: Source[];
   onGoScraper: () => void;
   onApply: (job: Job) => void;
+  appliedIds: Set<number>;
+  onToggleApplied: (match: MatchedJob) => void;
   onDownloadMatches: () => void;
   scrapeRuns: ScrapeRun[];
   selectedScrapeRunId: number | null;
@@ -42,6 +44,8 @@ export default function MatchesView({
   sources,
   onGoScraper,
   onApply,
+  appliedIds,
+  onToggleApplied,
   onDownloadMatches,
   scrapeRuns,
   selectedScrapeRunId,
@@ -135,6 +139,7 @@ export default function MatchesView({
         )}
         {matches.map((m, i) => {
           const open = !!expanded[m.job.id];
+          const applied = appliedIds.has(m.job.id);
           return (
             <article
               className={`match-card${open ? " open" : ""}`}
@@ -156,6 +161,17 @@ export default function MatchesView({
               <div className="match-top">
                 <span className="match-rank">#{i + 1}</span>
                 <span className="od-row" style={{ "--od-gap": "10px" } as React.CSSProperties}>
+                  <button
+                    className={`application-toggle${applied ? " applied" : ""}`}
+                    type="button"
+                    aria-pressed={applied}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleApplied(m);
+                    }}
+                  >
+                    {applied ? "Applied" : "Not yet"}
+                  </button>
                   <span className="match-score od-nowrap">
                     {m.score}
                     <small>%</small>

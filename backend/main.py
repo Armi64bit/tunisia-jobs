@@ -93,6 +93,16 @@ class CVUploadResponse(BaseModel):
     cv_path: Optional[str] = None
 
 
+class ApplicationCreate(BaseModel):
+    job_id: int
+    match_id: Optional[int] = None
+    applied_at: Optional[datetime] = None
+
+
+class ApplicationUpdate(BaseModel):
+    replied: bool
+
+
 def run_pipeline_background(cv_path: Optional[str] = None, skip_scraping: bool = False,
                             match_cv: bool = False, scrape_run_id: Optional[int] = None):
     """Run the main pipeline in a background thread."""
@@ -309,7 +319,7 @@ def get_cv_matches_from_db(limit: int = 50, scrape_run_id: Optional[int] = None)
             params["scrape_run_id"] = scrape_run_id
 
         df = db.fetch(f"""
-            SELECT j.id, j.title, j.location, j.contract, j.experience,
+            SELECT j.id, m.id AS match_id, j.title, j.location, j.contract, j.experience,
                    s.name AS sector_name,
                    j.source, j.source_url, j.posted_at, j.scraped_at,
                    c.name AS company_name,
@@ -342,6 +352,7 @@ def get_cv_matches_from_db(limit: int = 50, scrape_run_id: Optional[int] = None)
             
             matches.append({
                 "id": int(row.get("id", 0)),
+                "match_id": int(row.get("match_id", 0)),
                 "title": str(row.get("title", "")),
                 "company": str(row.get("company_name", "")),
                 "location": str(row.get("location", "")),
@@ -414,6 +425,77 @@ async def get_scrape_runs(limit: int = 30):
 async def get_cv_matches(limit: int = 50, scrape_run_id: Optional[int] = None):
     matches = get_cv_matches_from_db(limit, scrape_run_id)
     return matches
+
+
+def application_response(row) -> Dict[str, Any]:
+    return {
+        "job_id": int(row["job_id"]),
+        "match_id": int(row["match_id"]) if row["match_id"] == row["match_id"] else None,
+        "applied_at": row["applied_at"].isoformat() if row["applied_at"] else None,
+        "replied": bool(row["replied"]),
+        "id": int(row["id"]),
+        "title": str(row["title"] or ""),
+        "company": str(row["company_name"] or ""),
+        "location": str(row["location"] or ""),
+        "contract": str(row["contract"] or ""),
+        "source": str(row["source"] or ""),
+        "source_url": str(row["source_url"] or ""),
+        "posted_at": str(row["posted_at"] or ""),
+        "scraped_at": str(row["scraped_at"] or ""),
+        "description": str(row["description"] or row["summary"] or ""),
+        "match_score": int(row["match_score"] or 0),
+        "missing_skills": row["missing_skills"] or [],
+        "cv_keywords": row["cv_keywords"] or [],
+    }
+
+
+@app.get("/applications")
+async def get_applications():
+    from database.db_manager import DBManager
+
+    db = DBManager()
+    return [application_response(row) for _, row in db.get_applications().iterrows()]
+
+
+@app.post("/applications")
+async def create_application(application: ApplicationCreate):
+    from database.db_manager import DBManager
+
+    db = DBManager()
+    try:
+        saved = db.add_application(application.job_id, application.match_id, application.applied_at)
+    except Exception as exc:
+        logger.exception("Failed to save application")
+        raise HTTPException(status_code=400, detail=str(exc))
+    if saved.empty:
+        raise HTTPException(status_code=404, detail="Job not found")
+    rows = db.get_applications()
+    row = rows[rows["job_id"] == application.job_id]
+    if row.empty:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return application_response(row.iloc[0])
+
+
+@app.patch("/applications/{job_id}")
+async def update_application(job_id: int, application: ApplicationUpdate):
+    from database.db_manager import DBManager
+
+    db = DBManager()
+    saved = db.set_application_replied(job_id, application.replied)
+    if saved.empty:
+        raise HTTPException(status_code=404, detail="Application not found")
+    rows = db.get_applications()
+    row = rows[rows["job_id"] == job_id]
+    return application_response(row.iloc[0])
+
+
+@app.delete("/applications/{job_id}")
+async def delete_application(job_id: int):
+    from database.db_manager import DBManager
+
+    db = DBManager()
+    db.remove_application(job_id)
+    return {"success": True}
 
 
 @app.get("/pipeline/status", response_model=PipelineStatus)

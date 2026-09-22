@@ -1,5 +1,5 @@
 import type { ViewId } from "../lib/types";
-import { BoltIcon, GridIcon, TargetIcon } from "./icons";
+import { BoltIcon, CheckBadgeIcon, GridIcon, TargetIcon } from "./icons";
 
 interface SidebarProps {
   active: ViewId;
@@ -10,6 +10,7 @@ const NAV: { id: ViewId; label: string; Icon: typeof GridIcon }[] = [
   { id: "overview", label: "Overview", Icon: GridIcon },
   { id: "scraper", label: "Scraper run", Icon: BoltIcon },
   { id: "matches", label: "CV matches", Icon: TargetIcon },
+  { id: "applications", label: "Job offers", Icon: CheckBadgeIcon },
 ];
 
 export default function Sidebar({ active, onSwitch }: SidebarProps) {

@@ -34,6 +34,7 @@ class DBManager:
         )
         self.Session = sessionmaker(bind=self.engine)
         self._ensure_scrape_run_tables()
+        self._ensure_application_tables()
         self._backfill_scrape_runs()
         self._repair_empty_scrape_runs()
         logger.info("DBManager connected to database.")
@@ -69,6 +70,73 @@ class DBManager:
                 error_msg TEXT
             )
         """)
+
+    def _ensure_application_tables(self):
+        self.execute("""
+            CREATE TABLE IF NOT EXISTS job_applications (
+                job_id INT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+                match_id INT,
+                applied_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                replied BOOLEAN NOT NULL DEFAULT FALSE
+            )
+        """)
+        self.execute("ALTER TABLE job_applications ADD COLUMN IF NOT EXISTS match_id INT")
+        match_table = self.fetch("""
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public' AND table_name = 'cv_job_matches'
+        """)
+        if not match_table.empty:
+            self.execute("""
+                UPDATE job_applications a
+                SET match_id = m.id
+                FROM cv_job_matches m
+                WHERE a.match_id IS NULL AND m.job_id = a.job_id
+            """)
+        self.execute("""
+            CREATE INDEX IF NOT EXISTS idx_job_applications_replied
+            ON job_applications(replied)
+        """)
+        self.execute("""
+            CREATE INDEX IF NOT EXISTS idx_job_applications_match
+            ON job_applications(match_id)
+        """)
+
+    def get_applications(self):
+        return self.fetch("""
+            SELECT a.job_id, a.match_id, a.applied_at, a.replied,
+                   j.id, j.title, j.location, j.contract, j.source,
+                   j.source_url, j.posted_at, j.description, j.scraped_at,
+                   c.name AS company_name,
+                   COALESCE(m.match_score, 0) AS match_score,
+                   COALESCE(m.summary, '') AS summary,
+                   COALESCE(m.missing_skills, ARRAY[]::TEXT[]) AS missing_skills,
+                   COALESCE(m.cv_keywords, ARRAY[]::TEXT[]) AS cv_keywords
+            FROM job_applications a
+            JOIN jobs j ON j.id = a.job_id
+            LEFT JOIN companies c ON c.id = j.company_id
+            LEFT JOIN cv_job_matches m ON m.id = a.match_id
+            ORDER BY a.applied_at DESC
+        """)
+
+    def add_application(self, job_id: int, match_id: int | None = None, applied_at=None):
+        return self.execute_returning("""
+            INSERT INTO job_applications (job_id, match_id, applied_at)
+            VALUES (:job_id, :match_id, COALESCE(:applied_at, NOW()))
+            ON CONFLICT (job_id) DO UPDATE SET match_id = EXCLUDED.match_id
+            RETURNING job_id, match_id, applied_at, replied
+        """, {"job_id": job_id, "match_id": match_id, "applied_at": applied_at})
+
+    def set_application_replied(self, job_id: int, replied: bool):
+        return self.execute_returning("""
+            UPDATE job_applications
+            SET replied = :replied
+            WHERE job_id = :job_id
+            RETURNING job_id, applied_at, replied
+        """, {"job_id": job_id, "replied": replied})
+
+    def remove_application(self, job_id: int):
+        self.execute("DELETE FROM job_applications WHERE job_id = :job_id", {"job_id": job_id})
 
     def _backfill_scrape_runs(self):
         """Convert legacy per-source logs into selectable pipeline snapshots once."""
