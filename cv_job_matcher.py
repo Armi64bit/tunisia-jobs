@@ -20,6 +20,15 @@ OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "openrouter/free")
 logger = logging.getLogger("cv_job_matcher")
 
 
+def term_in_text(term: str, text: str) -> bool:
+    """Match a skill as a term, not as an accidental substring."""
+    normalized = re.sub(r"[^a-z0-9+#.]+", " ", term.lower()).strip()
+    if not normalized:
+        return False
+    pattern = r"(?<![a-z0-9+#])" + re.escape(normalized) + r"(?![a-z0-9+#])"
+    return re.search(pattern, text.lower()) is not None
+
+
 def extract_cv_skills_detailed(cv_text: str) -> dict:
     """Extract detailed skill categories from CV text."""
     text_lower = cv_text.lower()
@@ -102,29 +111,30 @@ def calculate_job_match_score(job: dict, cv_skills: dict, cv_keywords: list) -> 
     for category, skills in cv_skills.items():
         weight = weights.get(category, 1.0)
         for skill in skills:
-            if skill in job_text:
+            if term_in_text(skill, job_text):
                 score += weight
     
     # Match original keywords
     for kw in cv_keywords:
-        if kw.lower() in job_text:
+        if term_in_text(kw, job_text):
             score += weights['keywords']
     
     # Bonus for title matches (more important)
     title_lower = job.get('title', '').lower()
     for category, skills in cv_skills.items():
         for skill in skills:
-            if skill in title_lower:
+            if term_in_text(skill, title_lower):
                 score += weights.get(category, 1.0) * 1.5
     
     for kw in cv_keywords:
-        if kw.lower() in title_lower:
+        if term_in_text(kw, title_lower):
             score += weights['keywords'] * 1.5
     
     return score
 
 
-def get_jobs_for_cv_matching(db: DBManager, cv_keywords: list, cv_skills: dict, limit: int = 100) -> list:
+def get_jobs_for_cv_matching(db: DBManager, cv_keywords: list, cv_skills: dict,
+                             limit: int = 100, scrape_run_id: int | None = None) -> list:
     """Get jobs ranked by keyword match score."""
     # Build keyword conditions for initial filter (broad)
     all_keywords = cv_keywords[:15]
@@ -132,34 +142,64 @@ def get_jobs_for_cv_matching(db: DBManager, cv_keywords: list, cv_skills: dict, 
         all_keywords.extend(skills)
     
     # Deduplicate
-    unique_keywords = list(dict.fromkeys(all_keywords))[:20]
+    unique_keywords = [
+        keyword for keyword in dict.fromkeys(all_keywords)
+        if len(re.sub(r"[^a-z0-9]+", "", keyword.lower())) > 1
+    ][:20]
     
     keyword_conditions = " OR ".join([
         f"(j.title ILIKE '%{kw}%' OR j.description ILIKE '%{kw}%')" for kw in unique_keywords
     ])
     
+    run_join = ""
+    run_filter = ""
+    params = {"limit": limit}
+    if scrape_run_id is not None:
+        run_join = "JOIN scrape_run_jobs srj ON srj.job_id = j.id"
+        run_filter = "AND srj.run_id = :scrape_run_id"
+        params["scrape_run_id"] = scrape_run_id
+
     sql = f"""
         SELECT j.id, j.title, j.description, j.location, j.contract,
                j.experience, j.source, j.source_url, j.posted_at, j.scraped_at,
                c.name AS company_name, s.name AS sector_name
         FROM jobs j
+        {run_join}
         LEFT JOIN companies c ON c.id = j.company_id
         LEFT JOIN sectors s ON s.id = j.sector_id
         WHERE j.is_active = TRUE
           AND j.description IS NOT NULL
           AND j.description != ''
+          {run_filter}
           AND ({keyword_conditions})
         ORDER BY j.scraped_at DESC
         LIMIT :limit
     """
-    df = db.fetch(sql, {"limit": limit})
+    df = db.fetch(sql, params)
     logger.info(f"Found {len(df)} candidate jobs from keyword filter")
     
     # Score and rank jobs
     jobs = df.to_dict(orient="records")
     scored_jobs = []
+    technical_terms = [
+        term for category in ('languages', 'frameworks', 'databases', 'tools', 'cloud')
+        for term in cv_skills.get(category, [])
+        if len(term) > 1
+    ]
+    role_terms = cv_skills.get('roles', []) + [
+        'informaticien', 'informatique', 'software', 'developpeur',
+        'programmeur', 'web', 'data', 'system', 'système',
+    ]
     for job in jobs:
         score = calculate_job_match_score(job, cv_skills, cv_keywords)
+        title = job.get('title', '') or ''
+        text = f"{title} {job.get('description', '') or ''}"
+        title_is_relevant = any(term_in_text(term, title) for term in technical_terms + role_terms)
+        technical_hits = sum(term_in_text(term, text) for term in technical_terms)
+        if not title_is_relevant and technical_hits < 2:
+            continue
+        if score < 8:
+            continue
         job['pre_match_score'] = score
         scored_jobs.append(job)
     
@@ -279,7 +319,9 @@ Critères de notation:
     return None
 
 
-def save_cv_match(db: DBManager, job_id: int, match_result: dict, cv_keywords: list, cv_skills: dict):
+def save_cv_match(db: DBManager, job_id: int, match_result: dict,
+                  cv_keywords: list, cv_skills: dict,
+                  scrape_run_id: int | None = None):
     """Save CV-job match analysis to database."""
     db.execute(
         """
@@ -294,6 +336,7 @@ def save_cv_match(db: DBManager, job_id: int, match_result: dict, cv_keywords: l
             missing_skills  TEXT[],
             recommendation  VARCHAR(20),
             tokens_used     INT,
+            scrape_run_id   INT REFERENCES scrape_runs(id),
             created_at      TIMESTAMP DEFAULT NOW(),
             UNIQUE(job_id)
         )
@@ -304,10 +347,14 @@ def save_cv_match(db: DBManager, job_id: int, match_result: dict, cv_keywords: l
         ALTER TABLE cv_job_matches 
         ADD COLUMN IF NOT EXISTS cv_skills JSONB
     """)
+    db.execute("""
+        ALTER TABLE cv_job_matches
+        ADD COLUMN IF NOT EXISTS scrape_run_id INT REFERENCES scrape_runs(id)
+    """)
     db.execute(
         """
-        INSERT INTO cv_job_matches (job_id, cv_keywords, cv_skills, match_score, summary, why_good_match, missing_skills, recommendation, tokens_used)
-        VALUES (:job_id, :cv_keywords, :cv_skills, :match_score, :summary, :why_good_match, :missing_skills, :recommendation, :tokens_used)
+        INSERT INTO cv_job_matches (job_id, cv_keywords, cv_skills, match_score, summary, why_good_match, missing_skills, recommendation, tokens_used, scrape_run_id)
+        VALUES (:job_id, :cv_keywords, :cv_skills, :match_score, :summary, :why_good_match, :missing_skills, :recommendation, :tokens_used, :scrape_run_id)
         ON CONFLICT (job_id) DO UPDATE SET
             cv_keywords = EXCLUDED.cv_keywords,
             cv_skills = EXCLUDED.cv_skills,
@@ -317,6 +364,7 @@ def save_cv_match(db: DBManager, job_id: int, match_result: dict, cv_keywords: l
             missing_skills = EXCLUDED.missing_skills,
             recommendation = EXCLUDED.recommendation,
             tokens_used = EXCLUDED.tokens_used,
+            scrape_run_id = EXCLUDED.scrape_run_id,
             created_at = NOW()
         """,
         {
@@ -329,11 +377,13 @@ def save_cv_match(db: DBManager, job_id: int, match_result: dict, cv_keywords: l
             "missing_skills": match_result.get("missing_skills", []),
             "recommendation": match_result.get("recommendation", "peut-etre"),
             "tokens_used": match_result.get("tokens_used", 0),
+            "scrape_run_id": scrape_run_id,
         }
     )
 
 
-def run_cv_job_matching(cv_path: str, max_jobs: int = 50, ai_analysis_limit: int = 30) -> list:
+def run_cv_job_matching(cv_path: str, max_jobs: int = 50, ai_analysis_limit: int = 30,
+                        scrape_run_id: int | None = None) -> list:
     """
     Main pipeline: extract CV skills, find matching jobs, analyze with AI.
     Returns list of matched jobs with AI analysis, sorted by match score.
@@ -349,7 +399,14 @@ def run_cv_job_matching(cv_path: str, max_jobs: int = 50, ai_analysis_limit: int
 
     # 2. Get and pre-rank matching jobs from DB
     db = DBManager()
-    jobs = get_jobs_for_cv_matching(db, cv_keywords, cv_skills, limit=100)
+    selected_run_id = scrape_run_id or db.get_latest_scrape_run_id()
+    if selected_run_id:
+        logger.info(f"Using scrape run {selected_run_id} for CV matching")
+    else:
+        logger.info("No scrape run history found; using all active jobs")
+    jobs = get_jobs_for_cv_matching(
+        db, cv_keywords, cv_skills, limit=100, scrape_run_id=selected_run_id
+    )
     logger.info(f"Pre-ranked {len(jobs)} candidate jobs")
 
     # 3. Analyze top jobs with AI (limit AI calls to save costs)
@@ -364,7 +421,9 @@ def run_cv_job_matching(cv_path: str, max_jobs: int = 50, ai_analysis_limit: int
             job['cv_keywords'] = cv_keywords
             job['cv_skills'] = cv_skills
             # Save to DB
-            save_cv_match(db, job['id'], match_result, cv_keywords, cv_skills)
+            save_cv_match(
+                db, job['id'], match_result, cv_keywords, cv_skills, selected_run_id
+            )
             matched_jobs.append(job)
 
     # 4. Sort final results by AI match score
