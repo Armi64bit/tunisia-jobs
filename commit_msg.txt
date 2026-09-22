@@ -1,0 +1,9 @@
+Add Next.js frontend with CV matching dashboard
+
+- New Next.js 14 frontend with TypeScript and Tailwind-like CSS
+- Components: OverviewView, ScraperView, MatchesView, Sidebar, Toast
+- Real-time pipeline progress with live logs
+- CV upload and matching integration
+- CSV export functionality
+- API proxy for backend integration
+- Type-safe TypeScript types and API layer

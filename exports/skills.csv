@@ -1,36 +1,37 @@
 ﻿skill,category,job_count,pct_jobs
-communication,soft,72,24.7
-organisation,soft,67,22.9
-rigueur,soft,58,19.9
-français,language,58,19.9
-management,soft,36,12.3
-autonomie,soft,35,12.0
-anglais,language,32,11.0
-excel,data,27,9.2
-leadership,soft,17,5.8
-arabe,language,9,3.1
-autocad,tools,8,2.7
-travail en équipe,soft,7,2.4
-microsoft office,tools,7,2.4
-sap,erp,5,1.7
-odoo,erp,4,1.4
-photoshop,tools,4,1.4
-illustrator,tools,4,1.4
-english,language,3,1.0
-traitement de données,data,3,1.0
-git,devops,3,1.0
-postgresql,database,3,1.0
-power bi,data,2,0.7
-bi,data,2,0.7
-agile,tools,2,0.7
-ms office,tools,2,0.7
-cloud,devops,2,0.7
-.net,backend,2,0.7
-sql,data,2,0.7
-sql server,database,2,0.7
-react,frontend,2,0.7
-python,backend,2,0.7
-solidworks,tools,2,0.7
+communication,soft,74,21.5
+organisation,soft,69,20.1
+rigueur,soft,61,17.7
+français,language,61,17.7
+management,soft,38,11.0
+autonomie,soft,37,10.8
+anglais,language,33,9.6
+excel,data,30,8.7
+leadership,soft,18,5.2
+arabe,language,10,2.9
+autocad,tools,8,2.3
+travail en équipe,soft,8,2.3
+microsoft office,tools,7,2.0
+sap,erp,5,1.5
+odoo,erp,4,1.2
+photoshop,tools,4,1.2
+illustrator,tools,4,1.2
+power bi,data,3,0.9
+bi,data,3,0.9
+english,language,3,0.9
+traitement de données,data,3,0.9
+git,devops,3,0.9
+postgresql,database,3,0.9
+analyse de données,data,3,0.9
+agile,tools,2,0.6
+ms office,tools,2,0.6
+cloud,devops,2,0.6
+.net,backend,2,0.6
+sql,data,2,0.6
+sql server,database,2,0.6
+react,frontend,2,0.6
+python,backend,2,0.6
+solidworks,tools,2,0.6
 french,language,1,0.3
 javascript,frontend,1,0.3
 html,frontend,1,0.3
@@ -58,5 +59,6 @@ mysql,database,1,0.3
 scrum,tools,1,0.3
 jira,tools,1,0.3
 trello,tools,1,0.3
-analyse de données,data,1,0.3
 java,backend,1,0.3
+business intelligence,data,1,0.3
+gestion de projet,soft,1,0.3
