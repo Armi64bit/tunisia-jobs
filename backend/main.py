@@ -344,6 +344,7 @@ def get_cv_matches_from_db(limit: int = 50, scrape_run_id: Optional[int] = None)
                 "source_url": str(row.get("source_url", "")),
                 "posted_at": str(row.get("posted_at", "")),
                 "scraped_at": str(row.get("scraped_at", "")),
+                "scrape_run_id": scrape_run_id,
                 "match_score": int(row.get("match_score", 0)) if pd.notna(row.get("match_score")) else None,
                 "summary": str(row.get("summary", "")),
                 "why_good_match": str(row.get("why_good_match", "")),

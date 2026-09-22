@@ -186,6 +186,7 @@ export default function TunisJobsApp() {
             salary: "",
             skills: job.cv_keywords || [],
             desc: job.summary || "",
+            scrapedAt: job.scraped_at,
             applyUrl: job.source_url,
           },
           score: job.match_score || 0,
@@ -413,6 +414,9 @@ export default function TunisJobsApp() {
               onGoScraper={() => switchView("scraper")}
               onApply={handleApply}
               onDownloadMatches={() => downloadExport("cv-matches")}
+              scrapeRuns={scrapeRuns}
+              selectedScrapeRunId={selectedScrapeRunId}
+              onSelectScrapeRun={selectScrapeRun}
             />
           )}
         </main>

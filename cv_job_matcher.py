@@ -160,7 +160,8 @@ def get_jobs_for_cv_matching(db: DBManager, cv_keywords: list, cv_skills: dict,
         params["scrape_run_id"] = scrape_run_id
 
     sql = f"""
-        SELECT j.id, j.title, j.description, j.location, j.contract,
+         SELECT j.id, j.title, COALESCE(j.description, '') AS description,
+             j.location, j.contract,
                j.experience, j.source, j.source_url, j.posted_at, j.scraped_at,
                c.name AS company_name, s.name AS sector_name
         FROM jobs j
@@ -168,10 +169,8 @@ def get_jobs_for_cv_matching(db: DBManager, cv_keywords: list, cv_skills: dict,
         LEFT JOIN companies c ON c.id = j.company_id
         LEFT JOIN sectors s ON s.id = j.sector_id
         WHERE j.is_active = TRUE
-          AND j.description IS NOT NULL
-          AND j.description != ''
           {run_filter}
-          AND ({keyword_conditions})
+                    AND ({keyword_conditions.replace('j.description', "COALESCE(j.description, '')")})
         ORDER BY j.scraped_at DESC
         LIMIT :limit
     """
@@ -219,8 +218,7 @@ def analyze_job_match(cv_text: str, cv_keywords: list, cv_skills: dict, job: dic
 
     job_desc = (job.get('description', '') or '').strip()
     if not job_desc:
-        logger.warning(f"Job {job.get('id', 'unknown')} has no description, skipping")
-        return None
+        job_desc = "No job description was provided; evaluate the role from its title and metadata."
 
     job_title = job.get('title', '') or ''
     job_company = job.get('company_name', '') or job.get('company', '') or ''

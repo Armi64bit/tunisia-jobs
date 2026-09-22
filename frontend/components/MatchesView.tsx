@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CircleIcon, DownloadIcon, UploadIcon } from "./icons";
-import type { Job, MatchedJob, Source } from "../lib/types";
+import type { Job, MatchedJob, ScrapeRun, Source } from "../lib/types";
 import { companyLine, whyGoodMatch } from "../lib/matches";
 
 function ChevronIcon() {
@@ -30,6 +30,9 @@ interface MatchesViewProps {
   onGoScraper: () => void;
   onApply: (job: Job) => void;
   onDownloadMatches: () => void;
+  scrapeRuns: ScrapeRun[];
+  selectedScrapeRunId: number | null;
+  onSelectScrapeRun: (runId: number) => void;
 }
 
 export default function MatchesView({
@@ -40,6 +43,9 @@ export default function MatchesView({
   onGoScraper,
   onApply,
   onDownloadMatches,
+  scrapeRuns,
+  selectedScrapeRunId,
+  onSelectScrapeRun,
 }: MatchesViewProps) {
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
 
@@ -65,6 +71,24 @@ export default function MatchesView({
               : "Sample candidate profile skills compared against every listing."}
           </p>
         </div>
+        <label className="od-field" style={{ "--od-gap": "8px" } as React.CSSProperties}>
+          <span className="od-nowrap">Scrape result</span>
+          <select
+            value={selectedScrapeRunId ?? ""}
+            onChange={(e) => onSelectScrapeRun(Number(e.target.value))}
+            disabled={scrapeRuns.length === 0}
+          >
+            {scrapeRuns.length === 0 ? (
+              <option value="">No completed scrapes</option>
+            ) : (
+              scrapeRuns.map((run) => (
+                <option value={run.id} key={run.id}>
+                  {run.source} · {run.completed_at ? new Date(run.completed_at).toLocaleString() : "in progress"}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
         <div className="od-row" style={{ "--od-gap": "8px" } as React.CSSProperties}>
           <button className="btn btn-secondary" onClick={onGoScraper}>
             <UploadIcon />
@@ -176,7 +200,9 @@ export default function MatchesView({
                   <span className="match-detail-title">About the role</span>
                   <p className="match-detail-body">{m.job.desc}</p>
                   <span className="match-meta">
-                    <span>Posted {m.job.date} ago</span>
+                    <span>Posted {m.job.date || "unknown"}</span>
+                    <span className="sep-dot">·</span>
+                    <span>Scraped {m.job.scrapedAt || "unknown"}</span>
                     <span className="sep-dot">·</span>
                     <span>{m.job.contract}</span>
                     <span className="sep-dot">·</span>

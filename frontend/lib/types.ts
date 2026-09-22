@@ -16,6 +16,7 @@ export interface Job {
   salary: string;
   skills: string[];
   desc: string;
+  scrapedAt?: string;
   applyUrl?: string;
   source_url?: string;
 }
