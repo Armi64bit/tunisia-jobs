@@ -7,6 +7,7 @@ exports/
 *.pyc
 .DS_Store
 chromedriver*
+node_modules/
 /frontend/node_modules
 /frontend/.next
 /frontend/out
